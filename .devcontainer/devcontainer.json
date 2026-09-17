@@ -1,0 +1,4 @@
+{
+    "name": "Atlas",
+    "image": "mcr.microsoft.com/devcontainers/java:21"
+}
