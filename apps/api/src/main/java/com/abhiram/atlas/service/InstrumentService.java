@@ -7,6 +7,7 @@ import org.springframework.stereotype.Service;
 
 import com.abhiram.atlas.dto.InstrumentResponse;
 import com.abhiram.atlas.entity.Instrument;
+import com.abhiram.atlas.exception.ResourceNotFoundException;
 import com.abhiram.atlas.repository.InstrumentRepository;
 
 import lombok.RequiredArgsConstructor;
@@ -33,7 +34,9 @@ public class InstrumentService {
     public InstrumentResponse getById(UUID id) {
 
         Instrument instrument = repository.findById(id)
-                .orElseThrow();
+                .orElseThrow(() ->
+        new ResourceNotFoundException(
+                "Instrument not found: " + id));
 
         return new InstrumentResponse(
                 instrument.getId(),
