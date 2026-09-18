@@ -2,16 +2,17 @@ package com.abhiram.atlas.service;
 
 import org.springframework.stereotype.Service;
 
+import com.abhiram.atlas.dto.IngestionResult;
+
 @Service
 public class MarketDataIngestionService {
 
-    public String ingestCompany(String symbol) {
+    public IngestionResult ingestCompany(String symbol) {
 
-        // TODO:
-        // Call real market provider
-        // Parse response
-        // Store in database
-
-        return "Ingestion placeholder for " + symbol;
+        return new IngestionResult(
+                symbol,
+                "SUCCESS",
+                "Ingestion placeholder completed"
+        );
     }
 }

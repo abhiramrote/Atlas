@@ -1,7 +1,9 @@
 package com.abhiram.atlas.controller;
 
-import com.abhiram.atlas.service.MarketDataIngestionService;
 import org.springframework.web.bind.annotation.*;
+
+import com.abhiram.atlas.dto.IngestionResult;
+import com.abhiram.atlas.service.MarketDataIngestionService;
 
 @RestController
 @RequestMapping("/api/admin/ingestion")
@@ -15,7 +17,7 @@ public class MarketDataIngestionController {
     }
 
     @PostMapping("/{symbol}")
-    public String ingest(
+    public IngestionResult ingest(
             @PathVariable String symbol) {
 
         return service.ingestCompany(symbol);
