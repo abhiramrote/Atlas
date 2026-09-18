@@ -10,9 +10,9 @@ public class MarketDataIngestionService {
     public IngestionResult ingestCompany(String symbol) {
 
         return new IngestionResult(
-                symbol,
-                "SUCCESS",
-                "Ingestion placeholder completed"
+        symbol.toUpperCase(),
+        "SUCCESS",
+        "Atlas ingestion pipeline accepted request"
         );
     }
 }

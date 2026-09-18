@@ -46,4 +46,19 @@ public class InstrumentService {
                 instrument.getActive()
         );
     }
+    public InstrumentResponse getBySymbol(String symbol) {
+
+        Instrument instrument = repository.findBySymbol(symbol)
+                    .orElseThrow(() ->
+                            new ResourceNotFoundException(
+                            "Instrument not found: " + symbol));
+
+                        return new InstrumentResponse(
+                                instrument.getId(),
+                                instrument.getSymbol(),
+                                instrument.getCompanyName(),
+                                instrument.getExchange(),
+                                instrument.getActive()
+                        );
+        }
 }

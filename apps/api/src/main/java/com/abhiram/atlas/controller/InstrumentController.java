@@ -31,4 +31,10 @@ public class InstrumentController {
 
         return service.getById(id);
     }
+    @GetMapping("/symbol/{symbol}")
+    public InstrumentResponse getBySymbol(
+        @PathVariable String symbol) {
+
+        return service.getBySymbol(symbol);
+    }
 }
