@@ -17,7 +17,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 import java.util.Comparator;
-import java.util.List;
 
 @Service
 @Transactional(readOnly = true)
@@ -319,4 +318,8 @@ public class OpportunityScoreService {
                 .limit(limit)
                 .toList();
     }
+
+    public Integer getScore(UUID companyId) {
+    return scoreCompany(companyId).score();
+}
 }
