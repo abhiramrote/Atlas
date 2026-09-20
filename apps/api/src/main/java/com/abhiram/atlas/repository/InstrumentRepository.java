@@ -1,12 +1,16 @@
 package com.abhiram.atlas.repository;
 
-import java.util.UUID;
+import com.abhiram.atlas.entity.Instrument;
 
 import org.springframework.data.jpa.repository.JpaRepository;
 
-import com.abhiram.atlas.entity.Instrument;
 import java.util.Optional;
+import java.util.UUID;
+
 public interface InstrumentRepository
-extends JpaRepository<Instrument, UUID> {
+        extends JpaRepository<Instrument, UUID> {
+
     Optional<Instrument> findBySymbol(String symbol);
+
+    Optional<Instrument> findBySymbolIgnoreCase(String symbol);
 }

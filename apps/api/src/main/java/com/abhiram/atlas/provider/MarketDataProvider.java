@@ -4,6 +4,5 @@ public interface MarketDataProvider {
 
     String getProviderName();
 
-    String fetchCompanyData(String symbol);
-
+    CompanyProfileData fetchCompanyData(String symbol);
 }

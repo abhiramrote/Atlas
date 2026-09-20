@@ -79,4 +79,16 @@ public class Company {
     public LocalDateTime getUpdatedAt() {
         return updatedAt;
     }
+    public void updateProfile(
+        String sector,
+        String industry,
+        String website,
+        String description
+    ) {
+        this.sector = sector;
+        this.industry = industry;
+        this.website = website;
+        this.description = description;
+        this.updatedAt = LocalDateTime.now();
+    }
 }
