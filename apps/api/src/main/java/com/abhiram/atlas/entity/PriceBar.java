@@ -11,6 +11,27 @@ import jakarta.persistence.*;
 @Table(name = "price_bar")
 public class PriceBar {
 
+    public PriceBar(
+        UUID id,
+        Instrument instrument,
+        LocalDate tradeDate,
+        BigDecimal openPrice,
+        BigDecimal highPrice,
+        BigDecimal lowPrice,
+        BigDecimal closePrice,
+        Long volume,
+        LocalDateTime createdAt) {
+
+    this.id = id;
+    this.instrument = instrument;
+    this.tradeDate = tradeDate;
+    this.openPrice = openPrice;
+    this.highPrice = highPrice;
+    this.lowPrice = lowPrice;
+    this.closePrice = closePrice;
+    this.volume = volume;
+    this.createdAt = createdAt;
+}
     @Id
     @Column(name = "id", nullable = false)
     private UUID id;

@@ -13,4 +13,5 @@ public interface PriceBarRepository
     findByInstrumentIdOrderByTradeDateDesc(
             UUID instrumentId
     );
+    void deleteByInstrumentId(UUID instrumentId);
 }
