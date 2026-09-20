@@ -1,13 +1,18 @@
 package com.abhiram.atlas.dto;
 
-import java.math.BigDecimal;
+import java.util.List;
+import java.util.UUID;
 
 public record OpportunityScoreResponse(
+        UUID companyId,
         String symbol,
         String companyName,
-        BigDecimal profitMargin,
-        BigDecimal revenueMargin,
         Integer score,
-        String rating
+        Integer maximumScore,
+        String rating,
+        String policyVersion,
+        Integer currentFiscalYear,
+        Integer previousFiscalYear,
+        List<ScoreFactorResponse> factors
 ) {
 }
