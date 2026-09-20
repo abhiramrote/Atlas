@@ -1,6 +1,7 @@
 package com.abhiram.atlas.repository;
 
 import com.abhiram.atlas.entity.FinancialStatement;
+
 import org.springframework.data.jpa.repository.JpaRepository;
 
 import java.util.List;
@@ -11,4 +12,8 @@ public interface FinancialStatementRepository
 
     List<FinancialStatement> findByCompanyId(UUID companyId);
 
+    List<FinancialStatement>
+    findByCompanyIdOrderByFiscalYearDescFiscalQuarterDesc(
+            UUID companyId
+    );
 }
