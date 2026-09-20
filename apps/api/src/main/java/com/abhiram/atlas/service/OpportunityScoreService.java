@@ -16,6 +16,8 @@ import java.math.RoundingMode;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
+import java.util.Comparator;
+import java.util.List;
 
 @Service
 @Transactional(readOnly = true)
@@ -294,5 +296,27 @@ public class OpportunityScoreService {
         }
 
         return "WEAK";
+    }
+    public List<OpportunityScoreResponse> getRankedOpportunities(int limit) {
+        if (limit < 1 || limit > 100) {
+            throw new IllegalArgumentException(
+                "Limit must be between 1 and 100"
+        );
+        }
+
+        return companyRepository.findAll()
+                .stream()
+                .map(company -> scoreCompany(company.getId()))
+                .sorted(
+                        Comparator.comparingInt(
+                                OpportunityScoreResponse::score
+                        )
+                        .reversed()
+                        .thenComparing(
+                                OpportunityScoreResponse::symbol
+                        )
+                )
+                .limit(limit)
+                .toList();
     }
 }

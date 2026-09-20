@@ -6,8 +6,10 @@ import com.abhiram.atlas.service.OpportunityScoreService;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.util.List;
 import java.util.UUID;
 
 @RestController
@@ -20,6 +22,13 @@ public class OpportunityScoreController {
             OpportunityScoreService service
     ) {
         this.service = service;
+    }
+
+    @GetMapping
+    public List<OpportunityScoreResponse> getRankedOpportunities(
+            @RequestParam(defaultValue = "20") int limit
+    ) {
+        return service.getRankedOpportunities(limit);
     }
 
     @GetMapping("/company/{companyId}")
