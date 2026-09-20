@@ -35,7 +35,7 @@ public class TwelveDataProvider {
 
     public TwelveDataTimeSeriesResponse fetchPriceHistory(
             String symbol) {
-
+                 System.out.println("API KEY = " + config.getApiKey());
         String url =
                 "https://api.twelvedata.com/time_series"
                 + "?symbol=" + symbol

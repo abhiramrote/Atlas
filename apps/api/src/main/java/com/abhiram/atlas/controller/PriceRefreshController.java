@@ -1,5 +1,7 @@
 package com.abhiram.atlas.controller;
 
+import com.abhiram.atlas.dto.PriceRefreshAllResult;
+import com.abhiram.atlas.dto.PriceRefreshItemResult;
 import com.abhiram.atlas.service.PriceHistoryIngestionService;
 
 import org.springframework.web.bind.annotation.PathVariable;
@@ -14,17 +16,20 @@ public class PriceRefreshController {
     private final PriceHistoryIngestionService service;
 
     public PriceRefreshController(
-            PriceHistoryIngestionService service) {
-
+            PriceHistoryIngestionService service
+    ) {
         this.service = service;
     }
 
     @PostMapping("/refresh/{symbol}")
-    public String refresh(
-            @PathVariable String symbol) {
+    public PriceRefreshItemResult refresh(
+            @PathVariable String symbol
+    ) {
+        return service.ingestHistory(symbol);
+    }
 
-        service.ingestHistory(symbol);
-
-        return "Prices refreshed successfully for " + symbol;
+    @PostMapping("/refresh-all")
+    public PriceRefreshAllResult refreshAll() {
+        return service.refreshAll();
     }
 }
