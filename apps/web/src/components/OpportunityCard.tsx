@@ -1,3 +1,4 @@
+import { Link } from "react-router-dom";
 import { ArrowUpRight } from "lucide-react";
 import type { Opportunity } from "../types/atlas";
 
@@ -99,10 +100,13 @@ function OpportunityCard({ opportunity, rank }: OpportunityCardProps) {
         ))}
       </div>
 
-      <button className="details-button" type="button">
+      <Link
+        className="details-button"
+        to={`/company/${opportunity.companyId}`}
+      >
         View company intelligence
         <ArrowUpRight size={16} />
-      </button>
+      </Link>
     </article>
   );
 }
