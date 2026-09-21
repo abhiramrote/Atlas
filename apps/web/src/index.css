@@ -772,3 +772,24 @@ button {
     flex-wrap: wrap;
   }
 }
+.partial-notice {
+  margin: 20px 0 40px;
+  padding: 14px 17px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  color: #93c5fd;
+  border: 1px solid rgba(59, 130, 246, 0.26);
+  border-radius: 13px;
+  background: rgba(59, 130, 246, 0.08);
+}
+
+.partial-notice svg {
+  flex-shrink: 0;
+}
+
+.partial-notice p {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.55;
+}

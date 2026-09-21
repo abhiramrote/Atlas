@@ -32,11 +32,17 @@ export interface Company {
 }
 
 export interface CombinedScore {
+  companyId: string;
   symbol: string;
+  companyName: string;
   fundamentalScore: number;
-  technicalScore: number;
+  technicalScore: number | null;
   finalScore: number;
+  maximumScore: number;
   rating: string;
+  policyVersion: string;
+  technicalScoreAvailable: boolean;
+  technicalScoreNote: string | null;
 }
 
 export interface Momentum {

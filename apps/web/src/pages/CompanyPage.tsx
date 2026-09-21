@@ -3,6 +3,7 @@ import { Link, useParams } from "react-router-dom";
 import {
   ArrowLeft,
   Globe,
+  Info,
   ShieldAlert,
   TrendingDown,
   TrendingUp,
@@ -58,33 +59,29 @@ function CompanyPage() {
       const companyData = await getCompany(companyId);
       setCompany(companyData);
 
-      const scoreResult = await Promise.allSettled([
-        getCombinedScore(companyId),
-      ]);
+      const [scoreResult, momentumResult, priceResult] =
+        await Promise.allSettled([
+          getCombinedScore(companyId),
+          getMomentum(companyData.instrumentId),
+          getPrices(companyData.instrumentId),
+        ]);
 
-      if (scoreResult[0].status === "fulfilled") {
-        setScore(scoreResult[0].value);
-      } else {
-        setScore(null);
-      }
+      setScore(
+        scoreResult.status === "fulfilled" ? scoreResult.value : null
+      );
 
-      const [momentumResult, priceResult] = await Promise.allSettled([
-        getMomentum(companyData.instrumentId),
-        getPrices(companyData.instrumentId),
-      ]);
-
-      if (momentumResult.status === "fulfilled") {
-        setMomentum(momentumResult.value);
-      } else {
-        setMomentum(null);
-      }
+      setMomentum(
+        momentumResult.status === "fulfilled"
+          ? momentumResult.value
+          : null
+      );
 
       if (priceResult.status === "fulfilled") {
         setPrices(priceResult.value);
 
         if (priceResult.value.length === 0) {
           setPriceNotice(
-            "No price history is stored for this instrument yet."
+            "No price history is stored for this instrument yet. Run a price refresh to populate market data."
           );
         }
       } else {
@@ -136,10 +133,7 @@ function CompanyPage() {
   if (error || !company) {
     return (
       <main className="dashboard-shell">
-        <div
-          className="state-card error-state"
-          style={{ marginTop: 60 }}
-        >
+        <div className="state-card error-state" style={{ marginTop: 60 }}>
           <ShieldAlert size={26} />
           <h4>Company unavailable</h4>
           <p>{error ?? "Company could not be loaded"}</p>
@@ -207,7 +201,11 @@ function CompanyPage() {
         <article className="metric-card">
           <div>
             <span>Technical score</span>
-            <strong>{score ? score.technicalScore : "N/A"}</strong>
+            <strong>
+              {score && score.technicalScore !== null
+                ? score.technicalScore
+                : "N/A"}
+            </strong>
           </div>
         </article>
 
@@ -216,18 +214,34 @@ function CompanyPage() {
             <span>Final score</span>
             <strong>
               {score ? score.finalScore : "N/A"}
-              {score && <small> {score.rating}</small>}
+              {score && (
+                <small>
+                  {" "}
+                  / {score.maximumScore} &middot; {score.rating}
+                </small>
+              )}
             </strong>
           </div>
         </article>
       </section>
 
+      {score && !score.technicalScoreAvailable && (
+        <section className="partial-notice">
+          <Info size={19} />
+          <p>
+            {score.technicalScoreNote ??
+              "Technical score unavailable."}{" "}
+            This result reflects fundamentals only and is scored out of{" "}
+            {score.maximumScore}, so it is not directly comparable with a
+            fully scored company.
+          </p>
+        </section>
+      )}
+
       {momentum && (
         <section
           className={
-            isUptrend
-              ? "momentum-banner up"
-              : "momentum-banner down"
+            isUptrend ? "momentum-banner up" : "momentum-banner down"
           }
         >
           {isUptrend ? (
