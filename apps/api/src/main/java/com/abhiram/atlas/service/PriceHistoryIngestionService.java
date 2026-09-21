@@ -80,7 +80,7 @@ public class PriceHistoryIngestionService {
                 "Price history refreshed successfully"
         );
     }
-
+    @Transactional
     public PriceRefreshAllResult refreshAll() {
 
         List<Instrument> instruments = instrumentRepository.findAll()
