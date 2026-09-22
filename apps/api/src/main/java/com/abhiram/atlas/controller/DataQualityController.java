@@ -1,5 +1,6 @@
 package com.abhiram.atlas.controller;
 
+import com.abhiram.atlas.dto.DataQualityOverview;
 import com.abhiram.atlas.dto.DataQualityReport;
 import com.abhiram.atlas.service.DataQualityService;
 
@@ -21,10 +22,21 @@ public class DataQualityController {
     }
 
     /**
-     * Reports data quality issues for one company.
+     * Quality status across the scoreable universe.
      *
-     * Read reliableForScoring before trusting any opportunity score
-     * for this company.
+     * Returns only enough for a list view to decide whether to show
+     * a warning. Full issue detail lives on the per company
+     * endpoint.
+     */
+    @GetMapping("/overview")
+    public DataQualityOverview overview() {
+        return service.checkAll();
+    }
+
+    /**
+     * Full report for one company.
+     *
+     * Read reliableForScoring before trusting any opportunity score.
      */
     @GetMapping("/companies/{companyId}")
     public DataQualityReport check(

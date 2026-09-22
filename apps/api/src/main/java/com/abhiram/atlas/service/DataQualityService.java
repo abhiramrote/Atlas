@@ -3,7 +3,9 @@ package com.abhiram.atlas.service;
 import com.abhiram.atlas.domain.DataQualitySeverity;
 import com.abhiram.atlas.domain.SectorMarginBand;
 import com.abhiram.atlas.dto.DataQualityIssue;
+import com.abhiram.atlas.dto.DataQualityOverview;
 import com.abhiram.atlas.dto.DataQualityReport;
+import com.abhiram.atlas.dto.DataQualitySummary;
 import com.abhiram.atlas.entity.Company;
 import com.abhiram.atlas.entity.FinancialStatement;
 import com.abhiram.atlas.exception.ResourceNotFoundException;
@@ -12,7 +14,9 @@ import com.abhiram.atlas.repository.FinancialStatementRepository;
 
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-
+import com.abhiram.atlas.domain.ScoringProfile;
+import com.abhiram.atlas.dto.DataQualityOverview;
+import com.abhiram.atlas.dto.DataQualitySummary;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.util.ArrayList;
@@ -154,6 +158,74 @@ public class DataQualityService {
                 issues
         );
     }
+    /**
+     * Quality status for every scoreable company.
+     *
+     * Exists so the dashboard can show a warning badge without
+     * issuing one request per company. Fifty separate calls to
+     * render a list would be slow enough that the badge would
+     * appear after the user had already read the scores, which
+     * defeats the purpose of warning them.
+     *
+     * Unscoreable companies are excluded. Assessing the quality of
+     * figures Atlas refuses to interpret would be meaningless, and
+     * including them would make the unreliable count misleading.
+     */
+    public DataQualityOverview checkAll() {
+
+        List<DataQualitySummary> summaries =
+                companyRepository.findAll()
+                        .stream()
+                        .filter(company -> ScoringProfile
+                                .parse(company.getScoringProfile())
+                                .isScoreable())
+                        .map(this::summarise)
+                        .toList();
+
+        int unreliable = (int) summaries.stream()
+                .filter(summary ->
+                        Boolean.FALSE.equals(
+                                summary.reliableForScoring()))
+                .count();
+
+        return new DataQualityOverview(
+                summaries.size(),
+                unreliable,
+                summaries
+        );
+    }
+
+    /**
+     * Reduces a full report to the fields a list view needs.
+     *
+     * A failure here returns a reliable result rather than an
+     * unreliable one, because a check that could not run is not
+     * evidence that the data is bad. Defaulting to a warning would
+     * flood the dashboard on any transient problem.
+     */
+    private DataQualitySummary summarise(Company company) {
+
+        try {
+            DataQualityReport report = check(company.getId());
+
+            return new DataQualitySummary(
+                    company.getId(),
+                    report.symbol(),
+                    report.reliableForScoring(),
+                    report.errorCount()
+            );
+
+        } catch (RuntimeException ex) {
+
+            return new DataQualitySummary(
+                    company.getId(),
+                    company.getInstrument().getSymbol(),
+                    true,
+                    0
+            );
+        }
+    }
+
 
     private boolean affectsScoringPeriods(
             DataQualityIssue issue,

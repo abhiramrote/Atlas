@@ -1,10 +1,12 @@
 import { Link } from "react-router-dom";
-import { ArrowUpRight } from "lucide-react";
+import { AlertTriangle, ArrowUpRight } from "lucide-react";
+
 import type { Opportunity } from "../types/atlas";
 
 interface OpportunityCardProps {
   opportunity: Opportunity;
   rank: number;
+  dataReliable?: boolean;
 }
 
 function ratingClass(rating: string): string {
@@ -21,7 +23,25 @@ function ratingClass(rating: string): string {
   }
 }
 
-function OpportunityCard({ opportunity, rank }: OpportunityCardProps) {
+/**
+ * One ranked opportunity.
+ *
+ * When the underlying data is unreliable the score is visually
+ * muted and a warning badge sits beside the symbol. Showing the
+ * number normally would let a reader anchor on it before noticing
+ * the caveat, which is the anchoring problem the company page
+ * already solves by placing the warning above the metrics.
+ *
+ * dataReliable defaults to true so the card still renders correctly
+ * if the overview call failed. Defaulting to a warning would flood
+ * the dashboard on any transient problem.
+ */
+function OpportunityCard({
+  opportunity,
+  rank,
+  dataReliable = true,
+}: OpportunityCardProps) {
+
   const safeScore = Math.max(
     0,
     Math.min(opportunity.score, opportunity.maximumScore)
@@ -33,7 +53,13 @@ function OpportunityCard({ opportunity, rank }: OpportunityCardProps) {
       : 0;
 
   return (
-    <article className="opportunity-card">
+    <article
+      className={
+        dataReliable
+          ? "opportunity-card"
+          : "opportunity-card unreliable"
+      }
+    >
       <div className="opportunity-header">
         <div className="rank">#{rank}</div>
 
@@ -43,7 +69,19 @@ function OpportunityCard({ opportunity, rank }: OpportunityCardProps) {
           </div>
 
           <div className="company-text">
-            <h4>{opportunity.symbol}</h4>
+            <h4>
+              {opportunity.symbol}
+
+              {!dataReliable && (
+                <span
+                  className="unreliable-badge"
+                  title="Underlying financial data has quality issues"
+                >
+                  <AlertTriangle size={11} />
+                </span>
+              )}
+            </h4>
+
             <p>{opportunity.companyName}</p>
           </div>
         </div>
@@ -56,24 +94,45 @@ function OpportunityCard({ opportunity, rank }: OpportunityCardProps) {
       <div className="score-row">
         <div>
           <span>Opportunity score</span>
-          <strong>
+          <strong
+            className={dataReliable ? "" : "score-muted"}
+          >
             {opportunity.score}
             <small>/{opportunity.maximumScore}</small>
           </strong>
         </div>
 
         <div
-          className="score-ring"
+          className={
+            dataReliable
+              ? "score-ring"
+              : "score-ring score-ring-muted"
+          }
           style={{
-            background: `conic-gradient(#8b5cf6 ${percentage}%, #202738 ${percentage}% 100%)`,
+            background: `conic-gradient(${
+              dataReliable ? "#8b5cf6" : "#5b6577"
+            } ${percentage}%, #202738 ${percentage}% 100%)`,
           }}
         >
           <div>{percentage}%</div>
         </div>
       </div>
 
+      {!dataReliable && (
+        <p className="unreliable-note">
+          Score rests on data with known quality issues
+        </p>
+      )}
+
       <div className="progress-track">
-        <div className="progress-fill" style={{ width: `${percentage}%` }} />
+        <div
+          className={
+            dataReliable
+              ? "progress-fill"
+              : "progress-fill progress-muted"
+          }
+          style={{ width: `${percentage}%` }}
+        />
       </div>
 
       <div className="period-row">

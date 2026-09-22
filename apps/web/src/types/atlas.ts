@@ -129,3 +129,15 @@ export interface FinancialGrowth {
   operatingProfitGrowthPercent: number | null;
   operatingCashFlowGrowthPercent: number | null;
 }
+export interface DataQualitySummary {
+  companyId: string;
+  symbol: string;
+  reliableForScoring: boolean;
+  errorCount: number;
+}
+
+export interface DataQualityOverview {
+  companiesChecked: number;
+  unreliableCount: number;
+  companies: DataQualitySummary[];
+}

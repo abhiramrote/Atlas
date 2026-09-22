@@ -1925,3 +1925,97 @@ button {
     grid-template-columns: 1fr;
   }
 }
+.topbar-actions {
+  display: flex;
+  gap: 10px;
+}
+
+/* ---------- Universe quality summary ---------- */
+
+.quality-summary {
+  margin: 18px 0 20px;
+  padding: 14px 17px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  color: #fcd34d;
+  border: 1px solid rgba(245, 158, 11, 0.26);
+  border-radius: 13px;
+  background: rgba(245, 158, 11, 0.08);
+}
+
+.quality-summary svg {
+  flex-shrink: 0;
+}
+
+.quality-summary p {
+  margin: 0;
+  color: #d4dae5;
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.quality-summary strong {
+  color: #fcd34d;
+}
+
+/* ---------- Unreliable card treatment ---------- */
+
+.opportunity-card.unreliable {
+  border-color: rgba(245, 158, 11, 0.22);
+}
+
+.opportunity-card.unreliable:hover {
+  border-color: rgba(245, 158, 11, 0.4);
+}
+
+.unreliable-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 17px;
+  height: 17px;
+  margin-left: 7px;
+  color: #fcd34d;
+  vertical-align: middle;
+  border-radius: 50%;
+  background: rgba(245, 158, 11, 0.16);
+}
+
+.score-muted {
+  color: #7d8799;
+}
+
+.score-ring-muted div {
+  color: #7d8799;
+}
+
+.progress-fill.progress-muted {
+  background: linear-gradient(90deg, #4a5364, #6b7486);
+}
+
+.unreliable-note {
+  margin: 10px 0 0;
+  padding: 7px 10px;
+  color: #fcd34d;
+  font-size: 10px;
+  font-weight: 600;
+  border-radius: 8px;
+  background: rgba(245, 158, 11, 0.09);
+}
+
+@media (max-width: 760px) {
+  .topbar-actions {
+    width: 100%;
+    flex-direction: column;
+  }
+
+  .topbar-actions > * {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .quality-summary {
+    align-items: flex-start;
+  }
+}

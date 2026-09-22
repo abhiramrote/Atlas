@@ -1,50 +1,106 @@
-import { Link } from "react-router-dom";
-import { FileText } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { Link } from "react-router-dom";
 import {
   Activity,
+  AlertTriangle,
   BarChart3,
   Database,
+  FileText,
   RefreshCw,
   ShieldAlert,
   Sparkles,
   TrendingUp,
 } from "lucide-react";
 
-import { getOpportunities } from "../api/atlasApi";
+import {
+  getDataQualityOverview,
+  getOpportunities,
+} from "../api/atlasApi";
+
 import OpportunityCard from "../components/OpportunityCard";
+
 import type { Opportunity } from "../types/atlas";
 
 function DashboardPage() {
-  const [opportunities, setOpportunities] = useState<Opportunity[]>([]);
+  const [opportunities, setOpportunities] = useState<
+    Opportunity[]
+  >([]);
+
+  /**
+   * Company id to reliability. Kept separate from the opportunity
+   * list because quality is assessed independently of scoring and
+   * the two endpoints can fail independently.
+   */
+  const [reliability, setReliability] = useState<
+    Map<string, boolean>
+  >(new Map());
+
+  const [unreliableCount, setUnreliableCount] = useState(0);
+
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const loadDashboard = useCallback(async (showRefreshState = false) => {
-    try {
-      if (showRefreshState) {
-        setRefreshing(true);
-      } else {
-        setLoading(true);
+  const loadDashboard = useCallback(
+    async (showRefreshState = false) => {
+      try {
+        if (showRefreshState) {
+          setRefreshing(true);
+        } else {
+          setLoading(true);
+        }
+
+        setError(null);
+
+        // Quality is fetched alongside rather than after, so the
+        // warning badges appear with the scores rather than
+        // arriving once the reader has already anchored on a
+        // number.
+        const [opportunityResult, qualityResult] =
+          await Promise.allSettled([
+            getOpportunities(50),
+            getDataQualityOverview(),
+          ]);
+
+        if (opportunityResult.status === "rejected") {
+          throw opportunityResult.reason;
+        }
+
+        setOpportunities(opportunityResult.value);
+
+        if (qualityResult.status === "fulfilled") {
+          const map = new Map<string, boolean>();
+
+          qualityResult.value.companies.forEach((entry) => {
+            map.set(
+              entry.companyId,
+              entry.reliableForScoring
+            );
+          });
+
+          setReliability(map);
+          setUnreliableCount(
+            qualityResult.value.unreliableCount
+          );
+        } else {
+          // Quality unavailable. Cards default to reliable rather
+          // than flooding the view with warnings.
+          setReliability(new Map());
+          setUnreliableCount(0);
+        }
+      } catch (requestError) {
+        setError(
+          requestError instanceof Error
+            ? requestError.message
+            : "Unable to load Atlas opportunities"
+        );
+      } finally {
+        setLoading(false);
+        setRefreshing(false);
       }
-
-      setError(null);
-
-      const data = await getOpportunities();
-      setOpportunities(data);
-    } catch (requestError) {
-      const message =
-        requestError instanceof Error
-          ? requestError.message
-          : "Unable to load Atlas opportunities";
-
-      setError(message);
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
-  }, []);
+    },
+    []
+  );
 
   useEffect(() => {
     void loadDashboard();
@@ -55,7 +111,9 @@ function DashboardPage() {
       return 0;
     }
 
-    return Math.max(...opportunities.map((item) => item.score));
+    return Math.max(
+      ...opportunities.map((item) => item.score)
+    );
   }, [opportunities]);
 
   const strongCount = useMemo(() => {
@@ -66,7 +124,9 @@ function DashboardPage() {
   }, [opportunities]);
 
   const scoringPolicy =
-    opportunities.length > 0 ? opportunities[0].policyVersion : "Not available";
+    opportunities.length > 0
+      ? opportunities[0].policyVersion
+      : "Not available";
 
   return (
     <main className="dashboard-shell">
@@ -81,32 +141,26 @@ function DashboardPage() {
             <p>Opportunity Intelligence Platform</p>
           </div>
         </div>
-        <div style={{ display: "flex", gap: 10 }}>
-  <Link className="refresh-button" to="/theses">
-    <FileText size={16} />
-    Research journal
-  </Link>
 
-  <button
-    className="refresh-button"
-    type="button"
-    disabled={refreshing}
-    onClick={() => void loadDashboard(true)}
-  >
-    <RefreshCw size={17} className={refreshing ? "spin" : ""} />
-    {refreshing ? "Refreshing" : "Refresh dashboard"}
-  </button>
-</div>
+        <div className="topbar-actions">
+          <Link className="refresh-button" to="/theses">
+            <FileText size={16} />
+            Research journal
+          </Link>
 
-        <button
-          className="refresh-button"
-          type="button"
-          disabled={refreshing}
-          onClick={() => void loadDashboard(true)}
-        >
-          <RefreshCw size={17} className={refreshing ? "spin" : ""} />
-          {refreshing ? "Refreshing" : "Refresh dashboard"}
-        </button>
+          <button
+            className="refresh-button"
+            type="button"
+            disabled={refreshing}
+            onClick={() => void loadDashboard(true)}
+          >
+            <RefreshCw
+              size={17}
+              className={refreshing ? "spin" : ""}
+            />
+            {refreshing ? "Refreshing" : "Refresh"}
+          </button>
+        </div>
       </header>
 
       <section className="hero">
@@ -122,8 +176,9 @@ function DashboardPage() {
           </h2>
 
           <p>
-            Atlas combines financial growth, profitability, operating cash flow,
-            and price momentum into inspectable opportunity rankings.
+            Atlas combines financial growth, profitability,
+            operating cash flow and price momentum into
+            inspectable opportunity rankings.
           </p>
         </div>
 
@@ -145,7 +200,7 @@ function DashboardPage() {
           </div>
 
           <div>
-            <span>Tracked opportunities</span>
+            <span>Scoreable companies</span>
             <strong>{opportunities.length}</strong>
           </div>
         </article>
@@ -173,13 +228,28 @@ function DashboardPage() {
         </article>
       </section>
 
+      {unreliableCount > 0 && (
+        <section className="quality-summary">
+          <AlertTriangle size={19} />
+
+          <p>
+            <strong>{unreliableCount}</strong> of{" "}
+            {opportunities.length} companies have financial data
+            with known quality issues. Their scores are marked
+            and should be verified against the source before
+            use.
+          </p>
+        </section>
+      )}
+
       <section className="development-notice">
         <ShieldAlert size={19} />
         <p>
-          Atlas is in development. Live provider data currently powers selected
-          price signals, while some fundamental records still use development
-          fixtures. Rankings are research outputs, not investment
-          recommendations.
+          Atlas is in development. Figures are reported in
+          crores. Banks and financial companies are excluded
+          because margin metrics designed for operating
+          companies do not apply to them. Rankings are research
+          outputs, not investment recommendations.
         </p>
       </section>
 
@@ -187,12 +257,14 @@ function DashboardPage() {
         <div className="section-heading">
           <div>
             <p className="section-kicker">Discovery engine</p>
-            <h3>Top opportunities</h3>
+            <h3>Ranked opportunities</h3>
           </div>
 
           <span>
             {opportunities.length}{" "}
-            {opportunities.length === 1 ? "company" : "companies"}
+            {opportunities.length === 1
+              ? "company"
+              : "companies"}
           </span>
         </div>
 
@@ -209,7 +281,10 @@ function DashboardPage() {
             <h4>Dashboard unavailable</h4>
             <p>{error}</p>
 
-            <button type="button" onClick={() => void loadDashboard()}>
+            <button
+              type="button"
+              onClick={() => void loadDashboard()}
+            >
               Try again
             </button>
           </div>
@@ -229,6 +304,9 @@ function DashboardPage() {
                 key={opportunity.companyId}
                 opportunity={opportunity}
                 rank={index + 1}
+                dataReliable={
+                  reliability.get(opportunity.companyId) ?? true
+                }
               />
             ))}
           </div>

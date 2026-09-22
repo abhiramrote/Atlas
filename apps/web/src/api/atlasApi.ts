@@ -1,6 +1,7 @@
 import type {
   CombinedScore,
   Company,
+  DataQualityOverview,
   DataQualityReport,
   FinancialGrowth,
   Momentum,
@@ -10,6 +11,7 @@ import type {
   Scoreability,
   SectorComparison,
 } from "../types/atlas";
+
 
 /**
  * Reads the server error message when present so validation
@@ -104,5 +106,10 @@ export function getGrowth(
 ): Promise<FinancialGrowth> {
   return request<FinancialGrowth>(
     `/api/growth/company/${companyId}`
+  );
+}
+export function getDataQualityOverview(): Promise<DataQualityOverview> {
+  return request<DataQualityOverview>(
+    "/api/data-quality/overview"
   );
 }
