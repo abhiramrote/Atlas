@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import {
   ArrowLeft,
+  Ban,
   Globe,
   Info,
   ShieldAlert,
@@ -21,30 +22,61 @@ import {
 import {
   getCombinedScore,
   getCompany,
+  getDataQuality,
+  getGrowth,
   getMomentum,
   getPrices,
+  getRiskMetrics,
+  getScoreability,
+  getSectorComparison,
 } from "../api/atlasApi";
+
+import DataQualityBanner from "../components/DataQualityBanner";
+import GrowthPanel from "../components/GrowthPanel";
+import RiskPanel from "../components/RiskPanel";
+import SectorComparisonPanel from "../components/SectorComparisonPanel";
 
 import type {
   CombinedScore,
   Company,
+  DataQualityReport,
+  FinancialGrowth,
   Momentum,
   PriceBar,
+  RiskMetrics,
+  Scoreability,
+  SectorComparison,
 } from "../types/atlas";
 
+/**
+ * Company intelligence page.
+ *
+ * Load order matters. Company identity and scoreability are fetched
+ * first, because an unscoreable company should not display metrics
+ * at all. Everything else is fetched in parallel and each panel is
+ * rendered only when its data arrived, so a missing risk endpoint
+ * does not blank the page.
+ */
 function CompanyPage() {
   const { companyId } = useParams<{ companyId: string }>();
 
   const [company, setCompany] = useState<Company | null>(null);
+  const [scoreability, setScoreability] =
+    useState<Scoreability | null>(null);
+  const [quality, setQuality] =
+    useState<DataQualityReport | null>(null);
   const [score, setScore] = useState<CombinedScore | null>(null);
+  const [growth, setGrowth] = useState<FinancialGrowth | null>(null);
+  const [sector, setSector] =
+    useState<SectorComparison | null>(null);
+  const [risk, setRisk] = useState<RiskMetrics | null>(null);
   const [momentum, setMomentum] = useState<Momentum | null>(null);
   const [prices, setPrices] = useState<PriceBar[]>([]);
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [priceNotice, setPriceNotice] = useState<string | null>(null);
 
-  const loadCompany = useCallback(async () => {
+  const load = useCallback(async () => {
     if (!companyId) {
       setError("No company was selected");
       setLoading(false);
@@ -54,20 +86,64 @@ function CompanyPage() {
     try {
       setLoading(true);
       setError(null);
-      setPriceNotice(null);
 
       const companyData = await getCompany(companyId);
       setCompany(companyData);
 
-      const [scoreResult, momentumResult, priceResult] =
-        await Promise.allSettled([
-          getCombinedScore(companyId),
-          getMomentum(companyData.instrumentId),
-          getPrices(companyData.instrumentId),
-        ]);
+      const [
+        scoreabilityResult,
+        qualityResult,
+        scoreResult,
+        growthResult,
+        sectorResult,
+        riskResult,
+        momentumResult,
+        priceResult,
+      ] = await Promise.allSettled([
+        getScoreability(companyId),
+        getDataQuality(companyId),
+        getCombinedScore(companyId),
+        getGrowth(companyId),
+        getSectorComparison(companyId),
+        getRiskMetrics(companyData.instrumentId),
+        getMomentum(companyData.instrumentId),
+        getPrices(companyData.instrumentId),
+      ]);
+
+      setScoreability(
+        scoreabilityResult.status === "fulfilled"
+          ? scoreabilityResult.value
+          : null
+      );
+
+      setQuality(
+        qualityResult.status === "fulfilled"
+          ? qualityResult.value
+          : null
+      );
 
       setScore(
-        scoreResult.status === "fulfilled" ? scoreResult.value : null
+        scoreResult.status === "fulfilled"
+          ? scoreResult.value
+          : null
+      );
+
+      setGrowth(
+        growthResult.status === "fulfilled"
+          ? growthResult.value
+          : null
+      );
+
+      setSector(
+        sectorResult.status === "fulfilled"
+          ? sectorResult.value
+          : null
+      );
+
+      setRisk(
+        riskResult.status === "fulfilled"
+          ? riskResult.value
+          : null
       );
 
       setMomentum(
@@ -76,35 +152,25 @@ function CompanyPage() {
           : null
       );
 
-      if (priceResult.status === "fulfilled") {
-        setPrices(priceResult.value);
-
-        if (priceResult.value.length === 0) {
-          setPriceNotice(
-            "No price history is stored for this instrument yet. Run a price refresh to populate market data."
-          );
-        }
-      } else {
-        setPrices([]);
-        setPriceNotice(
-          "Price history could not be loaded for this instrument."
-        );
-      }
+      setPrices(
+        priceResult.status === "fulfilled"
+          ? priceResult.value
+          : []
+      );
     } catch (requestError) {
-      const message =
+      setError(
         requestError instanceof Error
           ? requestError.message
-          : "Unable to load company intelligence";
-
-      setError(message);
+          : "Unable to load company intelligence"
+      );
     } finally {
       setLoading(false);
     }
   }, [companyId]);
 
   useEffect(() => {
-    void loadCompany();
-  }, [loadCompany]);
+    void load();
+  }, [load]);
 
   const chartData = useMemo(() => {
     return prices
@@ -118,6 +184,9 @@ function CompanyPage() {
 
   const isUptrend =
     momentum !== null && momentum.priceChangePercent > 0;
+
+  const unscoreable =
+    scoreability !== null && !scoreability.scoreable;
 
   if (loading) {
     return (
@@ -133,7 +202,10 @@ function CompanyPage() {
   if (error || !company) {
     return (
       <main className="dashboard-shell">
-        <div className="state-card error-state" style={{ marginTop: 60 }}>
+        <div
+          className="state-card error-state"
+          style={{ marginTop: 60 }}
+        >
           <ShieldAlert size={26} />
           <h4>Company unavailable</h4>
           <p>{error ?? "Company could not be loaded"}</p>
@@ -190,180 +262,226 @@ function CompanyPage() {
         </div>
       </section>
 
-      <section className="metric-grid">
-        <article className="metric-card">
-          <div>
-            <span>Fundamental score</span>
-            <strong>{score ? score.fundamentalScore : "N/A"}</strong>
-          </div>
-        </article>
+      {/*
+        Unscoreable companies stop here. Showing margin metrics for
+        a bank would present numbers that look meaningful and are
+        not, which is the exact problem the scoring profile exists
+        to prevent.
+      */}
+      {unscoreable ? (
+        <section className="unscoreable-panel">
+          <Ban size={22} />
 
-        <article className="metric-card">
           <div>
-            <span>Technical score</span>
             <strong>
-              {score && score.technicalScore !== null
-                ? score.technicalScore
-                : "N/A"}
+              Atlas cannot score this company
             </strong>
+            <p>{scoreability?.reason}</p>
+            <span className="profile-tag">
+              Profile: {scoreability?.scoringProfile}
+            </span>
           </div>
-        </article>
-
-        <article className="metric-card">
-          <div>
-            <span>Final score</span>
-            <strong>
-              {score ? score.finalScore : "N/A"}
-              {score && (
-                <small>
-                  {" "}
-                  / {score.maximumScore} &middot; {score.rating}
-                </small>
-              )}
-            </strong>
-          </div>
-        </article>
-      </section>
-
-      {score && !score.technicalScoreAvailable && (
-        <section className="partial-notice">
-          <Info size={19} />
-          <p>
-            {score.technicalScoreNote ??
-              "Technical score unavailable."}{" "}
-            This result reflects fundamentals only and is scored out of{" "}
-            {score.maximumScore}, so it is not directly comparable with a
-            fully scored company.
-          </p>
         </section>
-      )}
+      ) : (
+        <>
+          {quality && <DataQualityBanner report={quality} />}
 
-      {momentum && (
-        <section
-          className={
-            isUptrend ? "momentum-banner up" : "momentum-banner down"
-          }
-        >
-          {isUptrend ? (
-            <TrendingUp size={22} />
-          ) : (
-            <TrendingDown size={22} />
+          <section className="metric-grid">
+            <article className="metric-card">
+              <div>
+                <span>Fundamental score</span>
+                <strong>
+                  {score ? score.fundamentalScore : "—"}
+                </strong>
+              </div>
+            </article>
+
+            <article className="metric-card">
+              <div>
+                <span>Technical score</span>
+                <strong>
+                  {score && score.technicalScore !== null
+                    ? score.technicalScore
+                    : "—"}
+                </strong>
+              </div>
+            </article>
+
+            <article className="metric-card">
+              <div>
+                <span>Final score</span>
+                <strong>
+                  {score ? score.finalScore : "—"}
+                  {score && (
+                    <small>
+                      {" "}
+                      / {score.maximumScore} &middot;{" "}
+                      {score.rating}
+                    </small>
+                  )}
+                </strong>
+              </div>
+            </article>
+          </section>
+
+          {score && !score.technicalScoreAvailable && (
+            <section className="partial-notice">
+              <Info size={19} />
+              <p>
+                {score.technicalScoreNote ??
+                  "Technical score unavailable."}{" "}
+                This result reflects fundamentals only and is
+                scored out of {score.maximumScore}.
+              </p>
+            </section>
           )}
 
-          <div>
-            <span>Price momentum</span>
-            <strong>
-              {momentum.priceChangePercent > 0 ? "+" : ""}
-              {momentum.priceChangePercent}%
-            </strong>
+          <div className="panel-grid">
+            {growth && <GrowthPanel growth={growth} />}
+            {sector && (
+              <SectorComparisonPanel comparison={sector} />
+            )}
+            {risk && <RiskPanel risk={risk} />}
           </div>
 
-          <div className="momentum-detail">
-            <p>
-              First close <strong>{momentum.firstClose}</strong>
-            </p>
-            <p>
-              Latest close <strong>{momentum.latestClose}</strong>
-            </p>
-            <p className="trend-tag">{momentum.trend}</p>
-          </div>
-        </section>
+          {momentum && (
+            <section
+              className={
+                isUptrend
+                  ? "momentum-banner up"
+                  : "momentum-banner down"
+              }
+            >
+              {isUptrend ? (
+                <TrendingUp size={22} />
+              ) : (
+                <TrendingDown size={22} />
+              )}
+
+              <div>
+                <span>Price momentum</span>
+                <strong>
+                  {momentum.priceChangePercent > 0 ? "+" : ""}
+                  {momentum.priceChangePercent}%
+                </strong>
+              </div>
+
+              <div className="momentum-detail">
+                <p>
+                  First close{" "}
+                  <strong>{momentum.firstClose}</strong>
+                </p>
+                <p>
+                  Latest close{" "}
+                  <strong>{momentum.latestClose}</strong>
+                </p>
+                <p className="trend-tag">{momentum.trend}</p>
+              </div>
+            </section>
+          )}
+
+          <section className="chart-panel">
+            <div className="section-heading">
+              <div>
+                <p className="section-kicker">
+                  Market behaviour
+                </p>
+                <h3>Stored price history</h3>
+              </div>
+
+              <span>{chartData.length} trading days</span>
+            </div>
+
+            {chartData.length === 0 && (
+              <div className="development-notice">
+                <ShieldAlert size={19} />
+                <p>
+                  No price history is stored for this
+                  instrument yet. Run a price refresh to
+                  populate market data.
+                </p>
+              </div>
+            )}
+
+            {chartData.length > 0 && (
+              <div className="chart-frame">
+                <ResponsiveContainer width="100%" height={330}>
+                  <AreaChart data={chartData}>
+                    <defs>
+                      <linearGradient
+                        id="closeGradient"
+                        x1="0"
+                        y1="0"
+                        x2="0"
+                        y2="1"
+                      >
+                        <stop
+                          offset="0%"
+                          stopColor="#8b5cf6"
+                          stopOpacity={0.45}
+                        />
+                        <stop
+                          offset="100%"
+                          stopColor="#8b5cf6"
+                          stopOpacity={0}
+                        />
+                      </linearGradient>
+                    </defs>
+
+                    <CartesianGrid
+                      stroke="#222a3a"
+                      strokeDasharray="4 4"
+                      vertical={false}
+                    />
+
+                    <XAxis
+                      dataKey="date"
+                      stroke="#6f7b90"
+                      tickLine={false}
+                      axisLine={false}
+                      fontSize={11}
+                      minTickGap={25}
+                    />
+
+                    <YAxis
+                      stroke="#6f7b90"
+                      tickLine={false}
+                      axisLine={false}
+                      fontSize={11}
+                      domain={["auto", "auto"]}
+                      width={60}
+                    />
+
+                    <Tooltip
+                      contentStyle={{
+                        background: "#111622",
+                        border: "1px solid #2a3243",
+                        borderRadius: 12,
+                        color: "#e8ecf5",
+                        fontSize: 12,
+                      }}
+                    />
+
+                    <Area
+                      type="monotone"
+                      dataKey="close"
+                      stroke="#a78bfa"
+                      strokeWidth={2}
+                      fill="url(#closeGradient)"
+                    />
+                  </AreaChart>
+                </ResponsiveContainer>
+              </div>
+            )}
+          </section>
+        </>
       )}
-
-      <section className="chart-panel">
-        <div className="section-heading">
-          <div>
-            <p className="section-kicker">Market behaviour</p>
-            <h3>Stored price history</h3>
-          </div>
-
-          <span>{chartData.length} trading days</span>
-        </div>
-
-        {priceNotice && (
-          <div className="development-notice">
-            <ShieldAlert size={19} />
-            <p>{priceNotice}</p>
-          </div>
-        )}
-
-        {chartData.length > 0 && (
-          <div className="chart-frame">
-            <ResponsiveContainer width="100%" height={330}>
-              <AreaChart data={chartData}>
-                <defs>
-                  <linearGradient
-                    id="closeGradient"
-                    x1="0"
-                    y1="0"
-                    x2="0"
-                    y2="1"
-                  >
-                    <stop
-                      offset="0%"
-                      stopColor="#8b5cf6"
-                      stopOpacity={0.45}
-                    />
-                    <stop
-                      offset="100%"
-                      stopColor="#8b5cf6"
-                      stopOpacity={0}
-                    />
-                  </linearGradient>
-                </defs>
-
-                <CartesianGrid
-                  stroke="#222a3a"
-                  strokeDasharray="4 4"
-                  vertical={false}
-                />
-
-                <XAxis
-                  dataKey="date"
-                  stroke="#6f7b90"
-                  tickLine={false}
-                  axisLine={false}
-                  fontSize={11}
-                  minTickGap={25}
-                />
-
-                <YAxis
-                  stroke="#6f7b90"
-                  tickLine={false}
-                  axisLine={false}
-                  fontSize={11}
-                  domain={["auto", "auto"]}
-                  width={60}
-                />
-
-                <Tooltip
-                  contentStyle={{
-                    background: "#111622",
-                    border: "1px solid #2a3243",
-                    borderRadius: 12,
-                    color: "#e8ecf5",
-                    fontSize: 12,
-                  }}
-                />
-
-                <Area
-                  type="monotone"
-                  dataKey="close"
-                  stroke="#a78bfa"
-                  strokeWidth={2}
-                  fill="url(#closeGradient)"
-                />
-              </AreaChart>
-            </ResponsiveContainer>
-          </div>
-        )}
-      </section>
 
       <section className="development-notice">
         <ShieldAlert size={19} />
         <p>
-          Atlas is a research tool in development. Scores combine live price
-          signals with development fundamental fixtures and are not
+          Atlas is a research tool in development. Figures are
+          reported in crores. Scores are research outputs, not
           investment recommendations.
         </p>
       </section>
