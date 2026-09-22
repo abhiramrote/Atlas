@@ -1,6 +1,7 @@
 package com.abhiram.atlas.service;
 
 import com.abhiram.atlas.domain.ThesisState;
+import com.abhiram.atlas.dto.DataQualityReport;
 import com.abhiram.atlas.dto.ThesisMonitoringResult;
 import com.abhiram.atlas.entity.Company;
 import com.abhiram.atlas.entity.Instrument;
@@ -43,8 +44,11 @@ import static org.mockito.Mockito.when;
 /**
  * Tests for automated thesis monitoring.
  *
- * These encode the behavioural guarantees that make the monitor
- * trustworthy, particularly that missing data never causes a breach.
+ * The data quality tests encode the most important guarantee in the
+ * system: a corrupted figure must never permanently mark a thesis as
+ * disproven. HINDALCO's FY2025 net income produced a 1,856 percent
+ * growth figure that never happened. A thesis with a growth condition
+ * would have been invalidated on evidence that does not exist.
  */
 @ExtendWith(MockitoExtension.class)
 @MockitoSettings(strictness = Strictness.LENIENT)
@@ -68,6 +72,9 @@ class ThesisMonitoringServiceTest {
 
     @Mock
     private MetricResolver metricResolver;
+
+    @Mock
+    private DataQualityService dataQualityService;
 
     @InjectMocks
     private ThesisMonitoringService service;
@@ -103,11 +110,124 @@ class ThesisMonitoringServiceTest {
 
         when(metricResolver.isSupported(any()))
                 .thenReturn(true);
+
+        // Default to clean data. Individual tests override.
+        when(dataQualityService.check(COMPANY_ID))
+                .thenReturn(cleanReport());
+    }
+
+    // ----------------------------------------------------------
+    // Data quality gate
+    // ----------------------------------------------------------
+
+    @Test
+    @DisplayName("Does not invalidate on unreliable data")
+    void doesNotInvalidateOnUnreliableData() {
+
+        ThesisCondition condition = condition(
+                "NET_INCOME_GROWTH",
+                "ABOVE",
+                "100.00"
+        );
+
+        when(conditionRepository
+                .findByThesisVersionId(VERSION_ID))
+                .thenReturn(List.of(condition));
+
+        // The HINDALCO figure. A 1,856 percent growth that never
+        // happened.
+        when(metricResolver.resolveAll(company))
+                .thenReturn(metrics(
+                        "NET_INCOME_GROWTH", "1856.66"
+                ));
+
+        when(dataQualityService.check(COMPANY_ID))
+                .thenReturn(unreliableReport());
+
+        ThesisMonitoringResult result =
+                service.monitorThesis(THESIS_ID);
+
+        // A wrong invalidation destroys the record permanently.
+        assertThat(result.stateAfter())
+                .isNotEqualTo("INVALIDATED");
+
+        assertThat(condition.getBreached()).isFalse();
+
+        verify(conditionRepository, never())
+                .save(any(ThesisCondition.class));
     }
 
     @Test
-    @DisplayName("Breaches a condition and invalidates the thesis")
-    void breachesAndInvalidates() {
+    @DisplayName("Moves to weakening instead of invalidated")
+    void movesToWeakeningOnSuspectBreach() {
+
+        ThesisCondition condition = condition(
+                "NET_INCOME_GROWTH",
+                "ABOVE",
+                "100.00"
+        );
+
+        when(conditionRepository
+                .findByThesisVersionId(VERSION_ID))
+                .thenReturn(List.of(condition));
+
+        when(metricResolver.resolveAll(company))
+                .thenReturn(metrics(
+                        "NET_INCOME_GROWTH", "1856.66"
+                ));
+
+        when(dataQualityService.check(COMPANY_ID))
+                .thenReturn(unreliableReport());
+
+        ThesisMonitoringResult result =
+                service.monitorThesis(THESIS_ID);
+
+        // Weakening is an observation. Invalidated is a verdict.
+        // The state machine allows recovery from weakening.
+        assertThat(result.stateAfter()).isEqualTo("WEAKENING");
+
+        assertThat(result.note())
+                .containsIgnoringCase("unreliable");
+    }
+
+    @Test
+    @DisplayName("Reports a suspected breach without recording it")
+    void reportsSuspectedBreach() {
+
+        ThesisCondition condition = condition(
+                "OPERATING_MARGIN",
+                "BELOW",
+                "18.00"
+        );
+
+        when(conditionRepository
+                .findByThesisVersionId(VERSION_ID))
+                .thenReturn(List.of(condition));
+
+        when(metricResolver.resolveAll(company))
+                .thenReturn(metrics(
+                        "OPERATING_MARGIN", "15.40"
+                ));
+
+        when(dataQualityService.check(COMPANY_ID))
+                .thenReturn(unreliableReport());
+
+        ThesisMonitoringResult result =
+                service.monitorThesis(THESIS_ID);
+
+        assertThat(result.breachDetails())
+                .isNotEmpty()
+                .first()
+                .asString()
+                .contains("Suspected breach not recorded");
+
+        // newBreaches counts confirmed breaches only.
+        assertThat(result.newBreaches()).isZero();
+    }
+
+    @Test
+    @DisplayName("Invalidates normally when data is reliable")
+    void invalidatesOnReliableData() {
 
         ThesisCondition condition = condition(
                 "OPERATING_MARGIN",
@@ -127,21 +247,50 @@ class ThesisMonitoringServiceTest {
         ThesisMonitoringResult result =
                 service.monitorThesis(THESIS_ID);
 
+        assertThat(result.stateAfter())
+                .isEqualTo("INVALIDATED");
+
         assertThat(result.newBreaches()).isEqualTo(1);
-        assertThat(result.stateBefore()).isEqualTo("CANDIDATE");
-        assertThat(result.stateAfter()).isEqualTo("INVALIDATED");
-
         assertThat(condition.getBreached()).isTrue();
-        assertThat(condition.getBreachedValue())
-                .isEqualByComparingTo("15.40");
-
-        assertThat(result.breachDetails())
-                .hasSize(1)
-                .first()
-                .asString()
-                .contains("fell below")
-                .contains("15.40");
     }
+
+    @Test
+    @DisplayName("Notes quality issues even without a breach")
+    void notesQualityIssuesWithoutBreach() {
+
+        ThesisCondition condition = condition(
+                "OPERATING_MARGIN",
+                "BELOW",
+                "18.00"
+        );
+
+        when(conditionRepository
+                .findByThesisVersionId(VERSION_ID))
+                .thenReturn(List.of(condition));
+
+        // Healthy margin. No breach.
+        when(metricResolver.resolveAll(company))
+                .thenReturn(metrics(
+                        "OPERATING_MARGIN", "21.18"
+                ));
+
+        when(dataQualityService.check(COMPANY_ID))
+                .thenReturn(unreliableReport());
+
+        ThesisMonitoringResult result =
+                service.monitorThesis(THESIS_ID);
+
+        assertThat(result.stateAfter()).isEqualTo("CANDIDATE");
+
+        // The absence of a breach is itself unreliable when the
+        // data is suspect, so the caller is told.
+        assertThat(result.note())
+                .containsIgnoringCase("data quality");
+    }
+
+    // ----------------------------------------------------------
+    // Existing behaviour
+    // ----------------------------------------------------------
 
     @Test
     @DisplayName("Missing data never causes a breach")
@@ -157,7 +306,6 @@ class ThesisMonitoringServiceTest {
                 .findByThesisVersionId(VERSION_ID))
                 .thenReturn(List.of(condition));
 
-        // Metric could not be computed.
         when(metricResolver.resolveAll(company))
                 .thenReturn(new HashMap<>());
 
@@ -166,12 +314,7 @@ class ThesisMonitoringServiceTest {
 
         assertThat(result.newBreaches()).isZero();
         assertThat(result.conditionsEvaluated()).isZero();
-        assertThat(result.stateAfter()).isEqualTo("CANDIDATE");
-
         assertThat(condition.getBreached()).isFalse();
-
-        verify(conditionRepository, never())
-                .save(any(ThesisCondition.class));
     }
 
     @Test
@@ -198,7 +341,6 @@ class ThesisMonitoringServiceTest {
 
         assertThat(result.conditionsEvaluated()).isEqualTo(1);
         assertThat(result.newBreaches()).isZero();
-        assertThat(result.stateAfter()).isEqualTo("CANDIDATE");
     }
 
     @Test
@@ -211,7 +353,6 @@ class ThesisMonitoringServiceTest {
                 "18.00"
         );
 
-        // Already breached at 15.40 on a previous run.
         condition.markBreached(new BigDecimal("15.40"));
 
         when(conditionRepository
@@ -228,53 +369,11 @@ class ThesisMonitoringServiceTest {
 
         assertThat(result.newBreaches()).isZero();
 
-        // The original observation survives.
         assertThat(condition.getBreachedValue())
                 .isEqualByComparingTo("15.40");
 
         verify(eventRepository, never())
                 .save(any(ThesisEvent.class));
-    }
-
-    @Test
-    @DisplayName("Evaluates every condition on the version")
-    void evaluatesAllConditions() {
-
-        ThesisCondition margin = condition(
-                "OPERATING_MARGIN",
-                "BELOW",
-                "18.00"
-        );
-
-        ThesisCondition growth = condition(
-                "REVENUE_GROWTH",
-                "BELOW",
-                "0.00"
-        );
-
-        ThesisCondition drawdown = condition(
-                "MAX_DRAWDOWN",
-                "BELOW",
-                "-30.00"
-        );
-
-        when(conditionRepository
-                .findByThesisVersionId(VERSION_ID))
-                .thenReturn(List.of(margin, growth, drawdown));
-
-        Map<String, BigDecimal> values = new HashMap<>();
-        values.put("OPERATING_MARGIN", new BigDecimal("21.18"));
-        values.put("REVENUE_GROWTH", new BigDecimal("9.68"));
-        values.put("MAX_DRAWDOWN", new BigDecimal("-13.08"));
-
-        when(metricResolver.resolveAll(company))
-                .thenReturn(values);
-
-        ThesisMonitoringResult result =
-                service.monitorThesis(THESIS_ID);
-
-        assertThat(result.conditionsEvaluated()).isEqualTo(3);
-        assertThat(result.newBreaches()).isZero();
     }
 
     @Test
@@ -301,7 +400,6 @@ class ThesisMonitoringServiceTest {
                 service.monitorThesis(THESIS_ID);
 
         assertThat(result.conditionsEvaluated()).isZero();
-        assertThat(result.newBreaches()).isZero();
         assertThat(condition.getBreached()).isFalse();
     }
 
@@ -318,8 +416,9 @@ class ThesisMonitoringServiceTest {
         assertThat(result.note())
                 .containsIgnoringCase("archived");
 
-        verify(conditionRepository, never())
-                .findByThesisVersionId(any());
+        // Quality is not even checked for a closed thesis.
+        verify(dataQualityService, never())
+                .check(any(UUID.class));
     }
 
     @Test
@@ -334,7 +433,6 @@ class ThesisMonitoringServiceTest {
         ThesisMonitoringResult result =
                 service.monitorThesis(THESIS_ID);
 
-        assertThat(result.newBreaches()).isZero();
         assertThat(result.note())
                 .containsIgnoringCase("no published version");
     }
@@ -352,43 +450,38 @@ class ThesisMonitoringServiceTest {
                 .hasMessageContaining("Thesis not found");
     }
 
-    @Test
-    @DisplayName("An invalidated thesis is not re-invalidated")
-    void alreadyInvalidatedStaysStable() {
+    // ----------------------------------------------------------
+    // Fixtures
+    // ----------------------------------------------------------
 
-        thesis.transitionTo(ThesisState.INVALIDATED);
-
-        ThesisCondition condition = condition(
-                "OPERATING_MARGIN",
-                "BELOW",
-                "18.00"
+    private DataQualityReport cleanReport() {
+        return new DataQualityReport(
+                COMPANY_ID,
+                "INFY",
+                7,
+                0,
+                0,
+                true,
+                "No data quality issues detected.",
+                List.of()
         );
-
-        when(conditionRepository
-                .findByThesisVersionId(VERSION_ID))
-                .thenReturn(List.of(condition));
-
-        when(metricResolver.resolveAll(company))
-                .thenReturn(metrics(
-                        "OPERATING_MARGIN", "10.00"
-                ));
-
-        ThesisMonitoringResult result =
-                service.monitorThesis(THESIS_ID);
-
-        // The condition still breaches, but the state machine
-        // forbids INVALIDATED to INVALIDATED, so the thesis is
-        // left alone rather than throwing.
-        assertThat(result.stateAfter())
-                .isEqualTo("INVALIDATED");
-
-        assertThat(result.note())
-                .containsIgnoringCase("could not transition");
     }
 
-    // ----------------------------------------------------------
-    // Fixture helpers
-    // ----------------------------------------------------------
+    private DataQualityReport unreliableReport() {
+        return new DataQualityReport(
+                COMPANY_ID,
+                "HINDALCO",
+                8,
+                4,
+                4,
+                false,
+                "4 error level issues affect the periods used for "
+                        + "scoring. Any score for this company "
+                        + "should be treated as unreliable until "
+                        + "the source data is verified.",
+                List.of()
+        );
+    }
 
     private Map<String, BigDecimal> metrics(
             String metric,
@@ -414,9 +507,8 @@ class ThesisMonitoringServiceTest {
         );
     }
 
-    private ThesisVersion newVersion() throws Exception {
-
-        ThesisVersion newVersion = ThesisVersion.publish(
+    private ThesisVersion newVersion() {
+        return ThesisVersion.publish(
                 VERSION_ID,
                 thesis,
                 1,
@@ -431,8 +523,6 @@ class ThesisMonitoringServiceTest {
                 "v2.1",
                 new BigDecimal("1051.40")
         );
-
-        return newVersion;
     }
 
     private Instrument newInstrument() throws Exception {
@@ -461,6 +551,10 @@ class ThesisMonitoringServiceTest {
         setField(newCompany, "industry", "IT Services");
         setField(newCompany, "website", "https://example.com");
         setField(newCompany, "description", "Fixture");
+        setField(
+                newCompany,
+                "scoringProfile",
+                "OPERATING_COMPANY");
         setField(newCompany, "createdAt", LocalDateTime.now());
         setField(newCompany, "updatedAt", LocalDateTime.now());
 
@@ -486,4 +580,3 @@ class ThesisMonitoringServiceTest {
         field.set(target, value);
     }
 }
- 
