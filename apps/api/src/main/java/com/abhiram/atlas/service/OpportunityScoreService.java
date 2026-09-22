@@ -296,28 +296,40 @@ public class OpportunityScoreService {
 
         return "WEAK";
     }
-    public List<OpportunityScoreResponse> getRankedOpportunities(int limit) {
-        if (limit < 1 || limit > 100) {
-            throw new IllegalArgumentException(
+    public List<OpportunityScoreResponse> getRankedOpportunities(
+        int limit
+) {
+    if (limit < 1 || limit > 100) {
+        throw new IllegalArgumentException(
                 "Limit must be between 1 and 100"
         );
-        }
-
-        return companyRepository.findAll()
-                .stream()
-                .map(company -> scoreCompany(company.getId()))
-                .sorted(
-                        Comparator.comparingInt(
-                                OpportunityScoreResponse::score
-                        )
-                        .reversed()
-                        .thenComparing(
-                                OpportunityScoreResponse::symbol
-                        )
-                )
-                .limit(limit)
-                .toList();
     }
+
+    return companyRepository.findAll()
+            .stream()
+            .map(company -> {
+                try {
+                    return scoreCompany(company.getId());
+                } catch (RuntimeException ex) {
+                    // A company without sufficient financial
+                    // history cannot be ranked. Excluding it is
+                    // correct; failing the whole ranking is not.
+                    return null;
+                }
+            })
+            .filter(java.util.Objects::nonNull)
+            .sorted(
+                    Comparator.comparingInt(
+                            OpportunityScoreResponse::score
+                    )
+                    .reversed()
+                    .thenComparing(
+                            OpportunityScoreResponse::symbol
+                    )
+            )
+            .limit(limit)
+            .toList();
+}
 
     public Integer getScore(UUID companyId) {
     return scoreCompany(companyId).score();
