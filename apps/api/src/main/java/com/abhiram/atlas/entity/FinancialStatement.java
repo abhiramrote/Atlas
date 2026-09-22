@@ -84,4 +84,30 @@ public class FinancialStatement {
     public LocalDateTime getUpdatedAt() {
         return updatedAt;
     }
+    public static FinancialStatement fromProvider(
+        UUID id,
+        Company company,
+        Integer fiscalYear,
+        Integer fiscalQuarter,
+        BigDecimal revenue,
+        BigDecimal netIncome,
+        BigDecimal operatingProfit,
+        BigDecimal operatingCashFlow,
+        LocalDateTime timestamp
+) {
+    FinancialStatement statement = new FinancialStatement();
+
+    statement.id = id;
+    statement.company = company;
+    statement.fiscalYear = fiscalYear;
+    statement.fiscalQuarter = fiscalQuarter;
+    statement.revenue = revenue;
+    statement.netIncome = netIncome;
+    statement.operatingProfit = operatingProfit;
+    statement.operatingCashFlow = operatingCashFlow;
+    statement.createdAt = timestamp;
+    statement.updatedAt = timestamp;
+
+    return statement;
+}
 }

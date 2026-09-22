@@ -7,6 +7,7 @@ import com.abhiram.atlas.entity.Company;
 import com.abhiram.atlas.entity.FinancialStatement;
 import com.abhiram.atlas.repository.FinancialStatementRepository;
 
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -34,7 +35,10 @@ import java.util.Set;
  * condition attached to a thesis.
  */
 @Service
-@Transactional(readOnly = true)
+// @Transactional(
+//         readOnly = true,
+//         noRollbackFor = RuntimeException.class
+// )
 public class MetricResolver {
 
     private static final Logger log =
