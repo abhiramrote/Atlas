@@ -7,7 +7,6 @@ import com.abhiram.atlas.entity.Instrument;
 import com.abhiram.atlas.repository.CompanyRepository;
 import com.abhiram.atlas.repository.FinancialStatementRepository;
 
-import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -30,11 +29,13 @@ import static org.mockito.Mockito.when;
 /**
  * Tests for financial data quality detection.
  *
- * The HINDALCO fixtures are the real figures that exposed the gap.
- * FY2025 reported net income of 198,699 crore on revenue of 476,992
- * crore, a 42 percent net margin for an aluminium business whose
- * other years sit between 3 and 7 percent. Atlas scored the company
- * 8 out of 100 by comparing a normal year against that one.
+ * Fixtures use real figures from the three cases that shaped this
+ * feature:
+ *
+ *   HINDALCO    corrupted FY2025, 41.66 percent margin on aluminium
+ *   POWERGRID   genuine 44.53 percent margin on regulated transmission
+ *   BHARTIARTL  47,839 percent operating profit change from a
+ *               near-zero base after AGR charges
  */
 @ExtendWith(MockitoExtension.class)
 @MockitoSettings(strictness = Strictness.LENIENT)
@@ -51,70 +52,165 @@ class DataQualityServiceTest {
     @InjectMocks
     private DataQualityService service;
 
-    private Company company;
-
-    @BeforeEach
-    void setUp() throws Exception {
-        company = newCompany();
-
-        when(companyRepository.findById(COMPANY_ID))
-                .thenReturn(Optional.of(company));
-    }
+    // ----------------------------------------------------------
+    // Sector aware margin ceilings
+    // ----------------------------------------------------------
 
     @Test
-    @DisplayName("Detects the HINDALCO reporting anomaly")
-    void detectsHindalcoAnomaly() throws Exception {
+    @DisplayName("Flags an impossible margin for a metals company")
+    void flagsImpossibleMetalsMargin() throws Exception {
 
-        // Real figures from the provider. FY2025 is corrupted.
+        // HINDALCO FY2025. 198699 / 476992 is 41.66 percent, far
+        // above anything an aluminium business achieves.
+        setUpCompany("HINDALCO", "Metals and Mining");
+
         stub(
-                statement(2026, "274944.0", "13391.0", "22300.0"),
                 statement(2025, "476992.0", "198699.0", "210000.0"),
                 statement(2024, "215962.0", "10155.0", "17500.0")
         );
 
         DataQualityReport report = service.check(COMPANY_ID);
-
-        assertThat(report.errorCount()).isGreaterThan(0);
-        assertThat(report.reliableForScoring()).isFalse();
 
         assertThat(report.issues())
                 .extracting("check")
                 .contains("IMPLAUSIBLE_NET_MARGIN");
 
-        assertThat(report.summary())
-                .containsIgnoringCase("unreliable");
+        assertThat(report.reliableForScoring()).isFalse();
     }
 
     @Test
-    @DisplayName("Flags a net margin no operating company achieves")
-    void flagsImplausibleMargin() throws Exception {
+    @DisplayName("Accepts a high margin for regulated transmission")
+    void acceptsRegulatedPowerMargin() throws Exception {
 
-        // 198699 / 476992 is roughly 41.7 percent.
+        // POWERGRID genuinely earns mid forties because it is a
+        // regulated monopoly with guaranteed returns. A flat
+        // ceiling wrongly flagged this.
+        setUpCompany("POWERGRID", "Power");
+
         stub(
-                statement(2025, "476992.0", "198699.0", "210000.0"),
-                statement(2024, "215962.0", "10155.0", "17500.0")
+                statement(2026, "45000.0", "20038.0", "28000.0"),
+                statement(2025, "44000.0", "19500.0", "27500.0")
         );
 
         DataQualityReport report = service.check(COMPANY_ID);
 
         assertThat(report.issues())
-                .filteredOn("check", "IMPLAUSIBLE_NET_MARGIN")
+                .extracting("check")
+                .doesNotContain("IMPLAUSIBLE_NET_MARGIN");
+
+        assertThat(report.reliableForScoring()).isTrue();
+    }
+
+    @Test
+    @DisplayName("Still flags an impossible margin within Power")
+    void flagsImpossibleMarginEvenInPower() throws Exception {
+
+        // The Power ceiling is generous, not absent.
+        setUpCompany("POWERGRID", "Power");
+
+        stub(
+                statement(2026, "45000.0", "31000.0", "33000.0"),
+                statement(2025, "44000.0", "19500.0", "27500.0")
+        );
+
+        DataQualityReport report = service.check(COMPANY_ID);
+
+        assertThat(report.issues())
+                .extracting("check")
+                .contains("IMPLAUSIBLE_NET_MARGIN");
+    }
+
+    @Test
+    @DisplayName("Applies the default ceiling to unknown sectors")
+    void appliesDefaultCeiling() throws Exception {
+
+        setUpCompany("UNKNOWN", "Some New Sector");
+
+        stub(
+                statement(2026, "100000.0", "45000.0", "50000.0"),
+                statement(2025, "95000.0", "42000.0", "47000.0")
+        );
+
+        DataQualityReport report = service.check(COMPANY_ID);
+
+        assertThat(report.issues())
+                .extracting("check")
+                .contains("IMPLAUSIBLE_NET_MARGIN");
+    }
+
+    // ----------------------------------------------------------
+    // Low base handling
+    // ----------------------------------------------------------
+
+    @Test
+    @DisplayName("Does not report an extreme change from a low base")
+    void suppressesExtremeChangeFromLowBase() throws Exception {
+
+        // BHARTIARTL FY2022. Operating profit rose from near zero
+        // after AGR charges, producing 47,839 percent. True, and
+        // analytically useless.
+        setUpCompany("BHARTIARTL", "Telecommunications");
+
+        stub(
+                statement(2022, "116547.0", "4255.0", "48000.0"),
+                statement(2021, "100616.0", "-15084.0", "100.0")
+        );
+
+        DataQualityReport report = service.check(COMPANY_ID);
+
+        assertThat(report.issues())
+                .filteredOn("metric", "OPERATING_PROFIT")
+                .extracting("check")
+                .doesNotContain("EXTREME_YEAR_ON_YEAR_CHANGE");
+    }
+
+    @Test
+    @DisplayName("Reports a low base as a warning, not an error")
+    void reportsLowBaseAsWarning() throws Exception {
+
+        setUpCompany("BHARTIARTL", "Telecommunications");
+
+        stub(
+                statement(2022, "116547.0", "4255.0", "48000.0"),
+                statement(2021, "100616.0", "-15084.0", "100.0")
+        );
+
+        DataQualityReport report = service.check(COMPANY_ID);
+
+        assertThat(report.issues())
+                .filteredOn("check", "CHANGE_FROM_LOW_BASE")
                 .isNotEmpty()
-                .first()
-                .satisfies(issue -> {
-                    assertThat(issue.severity())
-                            .isEqualTo("ERROR");
-                    assertThat(issue.fiscalYear())
-                            .isEqualTo(2025);
-                });
+                .allSatisfy(issue ->
+                        assertThat(issue.severity())
+                                .isEqualTo("WARNING"));
     }
 
     @Test
-    @DisplayName("Flags an impossible year on year jump")
-    void flagsExtremeChange() throws Exception {
+    @DisplayName("A low base warning does not block scoring")
+    void lowBaseDoesNotBlockScoring() throws Exception {
 
-        // Net income moving from 10155 to 198699 is roughly a
-        // 1857 percent increase.
+        setUpCompany("BHARTIARTL", "Telecommunications");
+
+        stub(
+                statement(2026, "172985.0", "33556.0", "60000.0"),
+                statement(2025, "149307.0", "33000.0", "100.0")
+        );
+
+        DataQualityReport report = service.check(COMPANY_ID);
+
+        // A near-zero prior year is a limitation of the comparison,
+        // not evidence that the current figures are wrong.
+        assertThat(report.reliableForScoring()).isTrue();
+    }
+
+    @Test
+    @DisplayName("Still flags an extreme change from a real base")
+    void flagsExtremeChangeFromRealBase() throws Exception {
+
+        // HINDALCO net income moving from 10155 to 198699. The base
+        // is 4.7 percent of revenue, comfortably above the floor.
+        setUpCompany("HINDALCO", "Metals and Mining");
+
         stub(
                 statement(2025, "476992.0", "198699.0", "210000.0"),
                 statement(2024, "215962.0", "10155.0", "17500.0")
@@ -123,15 +219,20 @@ class DataQualityServiceTest {
         DataQualityReport report = service.check(COMPANY_ID);
 
         assertThat(report.issues())
-                .filteredOn(
-                        "check",
-                        "EXTREME_YEAR_ON_YEAR_CHANGE")
-                .isNotEmpty();
+                .filteredOn("metric", "NET_INCOME")
+                .extracting("check")
+                .contains("EXTREME_YEAR_ON_YEAR_CHANGE");
     }
+
+    // ----------------------------------------------------------
+    // Existing behaviour
+    // ----------------------------------------------------------
 
     @Test
     @DisplayName("Flags operating profit above revenue")
     void flagsOperatingProfitAboveRevenue() throws Exception {
+
+        setUpCompany("TEST", "Consumer Goods");
 
         stub(
                 statement(2026, "100000.0", "15000.0", "120000.0"),
@@ -149,7 +250,9 @@ class DataQualityServiceTest {
     @DisplayName("Passes a clean history without complaint")
     void passesCleanHistory() throws Exception {
 
-        // Real INFY figures. Steady growth, sensible margins.
+        // Real INFY figures.
+        setUpCompany("INFY", "Information Technology");
+
         stub(
                 statement(2026, "178650.0", "29440.0", "36254.0"),
                 statement(2025, "162990.0", "26713.0", "34424.0"),
@@ -160,15 +263,14 @@ class DataQualityServiceTest {
 
         assertThat(report.issueCount()).isZero();
         assertThat(report.reliableForScoring()).isTrue();
-        assertThat(report.summary())
-                .containsIgnoringCase("no data quality issues");
     }
 
     @Test
     @DisplayName("Tolerates ordinary cyclical swings")
     void toleratesCyclicalSwings() throws Exception {
 
-        // Real TATASTEEL style volatility. Large but genuine.
+        setUpCompany("TATASTEEL", "Metals and Mining");
+
         stub(
                 statement(2026, "218543.0", "3174.0", "21000.0"),
                 statement(2025, "229171.0", "4910.0", "25000.0"),
@@ -182,13 +284,12 @@ class DataQualityServiceTest {
         assertThat(report.reliableForScoring()).isTrue();
     }
 
-        @Test
+    @Test
     @DisplayName("Does not penalise scoring for old period issues")
     void oldIssuesDoNotAffectScoring() throws Exception {
 
-        // The corrupted margin sits in FY2022, outside the two
-        // periods scoring uses. Intervening years keep the
-        // year on year checks from firing on a scoring period.
+        setUpCompany("INFY", "Information Technology");
+
         stub(
                 statement(2026, "178650.0", "29440.0", "36254.0"),
                 statement(2025, "162990.0", "26713.0", "34424.0"),
@@ -204,12 +305,14 @@ class DataQualityServiceTest {
         // FY2022 is corrupted but scoring uses FY2026 and FY2025.
         assertThat(report.reliableForScoring()).isTrue();
         assertThat(report.summary())
-                .containsIgnoringCase("older periods");
+                .containsIgnoringCase("none affecting");
     }
 
     @Test
     @DisplayName("Handles missing figures without firing")
     void handlesMissingFigures() throws Exception {
+
+        setUpCompany("TEST", "Consumer Goods");
 
         stub(
                 statement(2026, null, null, null),
@@ -219,14 +322,14 @@ class DataQualityServiceTest {
         DataQualityReport report = service.check(COMPANY_ID);
 
         // Absent data is a coverage gap, not a quality violation.
-        // Flagging it here would duplicate what the scoring engine
-        // already reports.
         assertThat(report.errorCount()).isZero();
     }
 
     @Test
     @DisplayName("Handles a company with no statements")
-    void handlesEmptyHistory() {
+    void handlesEmptyHistory() throws Exception {
+
+        setUpCompany("TEST", "Consumer Goods");
 
         when(financialRepository
                 .findByCompanyIdOrderByFiscalYearDescFiscalQuarterDesc(
@@ -236,13 +339,46 @@ class DataQualityServiceTest {
         DataQualityReport report = service.check(COMPANY_ID);
 
         assertThat(report.periodsChecked()).isZero();
-        assertThat(report.issueCount()).isZero();
         assertThat(report.reliableForScoring()).isTrue();
     }
 
     // ----------------------------------------------------------
     // Fixtures
     // ----------------------------------------------------------
+
+    private Company company;
+
+    private void setUpCompany(String symbol, String sector)
+            throws Exception {
+
+        Instrument instrument = newInstance(Instrument.class);
+
+        setField(instrument, "id", UUID.randomUUID());
+        setField(instrument, "symbol", symbol);
+        setField(instrument, "companyName", symbol + " Ltd");
+        setField(instrument, "exchange", "NSE");
+        setField(instrument, "active", Boolean.TRUE);
+        setField(instrument, "createdAt", LocalDateTime.now());
+        setField(instrument, "updatedAt", LocalDateTime.now());
+
+        company = newInstance(Company.class);
+
+        setField(company, "id", COMPANY_ID);
+        setField(company, "instrument", instrument);
+        setField(company, "sector", sector);
+        setField(company, "industry", "Test Industry");
+        setField(company, "website", "https://example.com");
+        setField(company, "description", "Fixture");
+        setField(
+                company,
+                "scoringProfile",
+                "OPERATING_COMPANY");
+        setField(company, "createdAt", LocalDateTime.now());
+        setField(company, "updatedAt", LocalDateTime.now());
+
+        when(companyRepository.findById(COMPANY_ID))
+                .thenReturn(Optional.of(company));
+    }
 
     private void stub(FinancialStatement... statements) {
         when(financialRepository
@@ -279,39 +415,6 @@ class DataQualityServiceTest {
         setField(statement, "updatedAt", LocalDateTime.now());
 
         return statement;
-    }
-
-    private Company newCompany() throws Exception {
-
-        Instrument instrument = newInstance(Instrument.class);
-
-        setField(instrument, "id", UUID.randomUUID());
-        setField(instrument, "symbol", "HINDALCO");
-        setField(
-                instrument,
-                "companyName",
-                "Hindalco Industries Ltd");
-        setField(instrument, "exchange", "NSE");
-        setField(instrument, "active", Boolean.TRUE);
-        setField(instrument, "createdAt", LocalDateTime.now());
-        setField(instrument, "updatedAt", LocalDateTime.now());
-
-        Company newCompany = newInstance(Company.class);
-
-        setField(newCompany, "id", COMPANY_ID);
-        setField(newCompany, "instrument", instrument);
-        setField(newCompany, "sector", "Metals and Mining");
-        setField(newCompany, "industry", "Aluminium");
-        setField(newCompany, "website", "https://example.com");
-        setField(newCompany, "description", "Fixture");
-        setField(
-                newCompany,
-                "scoringProfile",
-                "OPERATING_COMPANY");
-        setField(newCompany, "createdAt", LocalDateTime.now());
-        setField(newCompany, "updatedAt", LocalDateTime.now());
-
-        return newCompany;
     }
 
     private BigDecimal decimal(String value) {

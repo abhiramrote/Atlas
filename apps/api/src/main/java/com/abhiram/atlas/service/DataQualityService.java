@@ -1,6 +1,7 @@
 package com.abhiram.atlas.service;
 
 import com.abhiram.atlas.domain.DataQualitySeverity;
+import com.abhiram.atlas.domain.SectorMarginBand;
 import com.abhiram.atlas.dto.DataQualityIssue;
 import com.abhiram.atlas.dto.DataQualityReport;
 import com.abhiram.atlas.entity.Company;
@@ -21,29 +22,24 @@ import java.util.UUID;
 /**
  * Detects financial data that is almost certainly wrong.
  *
- * THE CASE THAT PRODUCED THIS
+ * WHAT THE FIRST VERSION GOT WRONG
  *
- * HINDALCO reported FY2025 net income of 198,699 crore on revenue of
- * 476,992 crore. That is a 42 percent net margin for an aluminium
- * business whose every other year sits between 3 and 7 percent.
+ * A flat 40 percent margin ceiling caught HINDALCO correctly but
+ * wrongly flagged POWERGRID at 44.53 percent, which is genuine for a
+ * regulated transmission monopoly. Ceilings are now per sector.
  *
- * Atlas scored the company 8 out of 100 because it compared a normal
- * FY2026 against that corrupted FY2025. The score was arithmetically
- * correct and completely meaningless.
- *
- * Nothing in the pipeline objected. A single bad provider row flowed
- * through growth calculation into scoring into the ranking, and was
- * only caught by manual inspection of an outlier.
+ * Percentage change was computed against any non-zero base, which
+ * produced figures like BHARTIARTL's 47,839 percent operating profit
+ * increase in FY2022. That number is arithmetically true and
+ * analytically useless: it describes recovery from a near-zero base,
+ * not a reporting inconsistency. Changes from a small base are now
+ * reported as such rather than as an extreme change.
  *
  * DESIGN PRINCIPLE
  *
- * These checks never modify or discard data. Silently correcting a
- * figure would hide a provider problem and make the stored history
- * disagree with the source. The checks annotate, and callers decide.
- *
- * Thresholds are deliberately loose. A check that fires on ordinary
- * volatility trains you to ignore it, which is worse than having no
- * check. These are tuned to catch impossibilities, not surprises.
+ * Checks never modify or discard data. Silently correcting a figure
+ * would hide a provider problem and make stored history disagree
+ * with its source. The checks annotate; callers decide.
  */
 @Service
 @Transactional(readOnly = true)
@@ -53,45 +49,39 @@ public class DataQualityService {
             BigDecimal.valueOf(100);
 
     /**
-     * Net margin above this is implausible for any non-financial
-     * company reporting conventionally.
-     *
-     * Set at 60 rather than something tighter because a few genuine
-     * businesses do run very high margins. Regulated transmission
-     * and some pharmaceutical licensing models reach forty or fifty.
-     * Sixty is high enough that crossing it almost always means the
-     * figure is not really net income.
-     */
-    private static final BigDecimal IMPLAUSIBLE_MARGIN =
-            BigDecimal.valueOf(40);
-
-    /**
-     * Net margin below this suggests either severe distress or a
-     * reporting problem. Flagged as a warning, not an error,
-     * because genuine large losses do happen.
+     * Net margin below this suggests severe distress or a reporting
+     * problem. A warning rather than an error, because genuine large
+     * losses do happen.
      */
     private static final BigDecimal SEVERE_LOSS_MARGIN =
             BigDecimal.valueOf(-50);
 
     /**
      * Year on year change beyond this is treated as a probable data
-     * problem rather than a business event.
-     *
-     * Three hundred percent allows for genuine cyclical swings,
-     * recoveries from a low base and commodity cycles. A tighter
-     * bound would fire constantly on cyclical companies.
+     * problem, but only when the base is large enough for the
+     * percentage to mean anything.
      */
     private static final BigDecimal EXTREME_CHANGE =
             BigDecimal.valueOf(300);
 
     /**
-     * Revenue change beyond this is suspicious even though revenue
-     * is more stable than profit. A business rarely doubles or
-     * halves its top line in one year without a merger or a change
-     * in reporting basis.
+     * Revenue gets a tighter bound because a top line rarely doubles
+     * or halves without a merger or a change in reporting basis.
      */
     private static final BigDecimal EXTREME_REVENUE_CHANGE =
             BigDecimal.valueOf(60);
+
+    /**
+     * Minimum base size, as a fraction of revenue, for a percentage
+     * change to be meaningful.
+     *
+     * BHARTIARTL FY2022 showed operating profit rising 47,839 percent
+     * because the prior year was close to zero after AGR charges.
+     * Below two percent of revenue, a percentage change describes
+     * the smallness of the base rather than the size of the move.
+     */
+    private static final BigDecimal MINIMUM_BASE_FRACTION =
+            BigDecimal.valueOf(0.02);
 
     private final CompanyRepository companyRepository;
     private final FinancialStatementRepository financialRepository;
@@ -113,6 +103,8 @@ public class DataQualityService {
                         )
                 );
 
+        String sector = company.getSector();
+
         List<FinancialStatement> statements =
                 financialRepository
                         .findByCompanyIdOrderByFiscalYearDescFiscalQuarterDesc(
@@ -122,10 +114,9 @@ public class DataQualityService {
         List<DataQualityIssue> issues = new ArrayList<>();
 
         for (FinancialStatement statement : statements) {
-            issues.addAll(checkMargins(statement));
+            issues.addAll(checkMargins(statement, sector));
         }
 
-        // Year on year checks need consecutive pairs.
         for (int index = 0; index < statements.size() - 1; index++) {
 
             FinancialStatement current = statements.get(index);
@@ -139,9 +130,6 @@ public class DataQualityService {
                         .equals(issue.severity()))
                 .count();
 
-        // Scoring uses the two most recent periods. An error in an
-        // older period is worth reporting but does not invalidate a
-        // current score.
         boolean scoringAffected = statements.size() >= 2
                 && issues.stream()
                         .filter(issue ->
@@ -167,28 +155,20 @@ public class DataQualityService {
         );
     }
 
-    /**
-     * Checks whether an issue touches a period that scoring uses.
-     *
-     * Scoring compares the two most recent periods, so a corrupted
-     * FY2019 does not make today's score unreliable.
-     */
     private boolean affectsScoringPeriods(
             DataQualityIssue issue,
             List<FinancialStatement> statements
     ) {
-        Integer currentYear =
-                statements.get(0).getFiscalYear();
-
-        Integer previousYear =
-                statements.get(1).getFiscalYear();
+        Integer currentYear = statements.get(0).getFiscalYear();
+        Integer previousYear = statements.get(1).getFiscalYear();
 
         return issue.fiscalYear().equals(currentYear)
                 || issue.fiscalYear().equals(previousYear);
     }
 
     private List<DataQualityIssue> checkMargins(
-            FinancialStatement statement
+            FinancialStatement statement,
+            String sector
     ) {
         List<DataQualityIssue> issues = new ArrayList<>();
 
@@ -201,7 +181,9 @@ public class DataQualityService {
             return issues;
         }
 
-        if (netMargin.compareTo(IMPLAUSIBLE_MARGIN) > 0) {
+        BigDecimal ceiling = SectorMarginBand.ceilingFor(sector);
+
+        if (netMargin.compareTo(ceiling) > 0) {
 
             issues.add(new DataQualityIssue(
                     "IMPLAUSIBLE_NET_MARGIN",
@@ -209,13 +191,13 @@ public class DataQualityService {
                     statement.getFiscalYear(),
                     "NET_MARGIN",
                     netMargin,
-                    "below " + IMPLAUSIBLE_MARGIN + " percent",
-                    "A net margin this high is not achievable by a "
-                            + "conventionally reporting operating "
-                            + "company. The reported net income is "
-                            + "probably not net income, or the "
-                            + "period mixes consolidated and "
-                            + "standalone figures."
+                    "below " + ceiling + " percent for "
+                            + describeSector(sector),
+                    "A net margin this high is not plausible for "
+                            + describeSector(sector)
+                            + ". The reported net income may not be "
+                            + "net income, or the period may mix "
+                            + "consolidated and standalone figures."
             ));
         }
 
@@ -231,20 +213,13 @@ public class DataQualityService {
                     "A loss larger than half of revenue is possible "
                             + "but unusual. Verify against the "
                             + "source before relying on any score "
-                            + "derived from this period."
+                            + "from this period."
             ));
         }
 
-        // Operating profit exceeding revenue is arithmetically
-        // possible only when other income is included in operating
-        // profit, which means the figures are not comparable with
-        // other companies.
-        if (statement.getOperatingProfit() != null
-                && statement.getRevenue() != null
-                && statement.getRevenue()
-                        .compareTo(BigDecimal.ZERO) > 0
-                && statement.getOperatingProfit()
-                        .compareTo(statement.getRevenue()) > 0) {
+        if (exceedsRevenue(
+                statement.getOperatingProfit(),
+                statement.getRevenue())) {
 
             issues.add(new DataQualityIssue(
                     "OPERATING_PROFIT_EXCEEDS_REVENUE",
@@ -276,6 +251,7 @@ public class DataQualityService {
                 "REVENUE",
                 current.getRevenue(),
                 previous.getRevenue(),
+                previous.getRevenue(),
                 EXTREME_REVENUE_CHANGE,
                 "Revenue rarely moves this much in one year "
                         + "without a merger, demerger or a change "
@@ -289,6 +265,7 @@ public class DataQualityService {
                 "NET_INCOME",
                 current.getNetIncome(),
                 previous.getNetIncome(),
+                previous.getRevenue(),
                 EXTREME_CHANGE,
                 "A change of this magnitude in net income is far "
                         + "more often a reporting inconsistency "
@@ -301,6 +278,7 @@ public class DataQualityService {
                 "OPERATING_PROFIT",
                 current.getOperatingProfit(),
                 previous.getOperatingProfit(),
+                previous.getRevenue(),
                 EXTREME_CHANGE,
                 "A change of this magnitude in operating profit "
                         + "suggests the two periods were not "
@@ -310,15 +288,62 @@ public class DataQualityService {
         return issues;
     }
 
+    /**
+     * Evaluates a year on year change.
+     *
+     * When the previous value is small relative to revenue, the
+     * percentage is suppressed and a low base note is recorded
+     * instead. A move from near zero to a normal figure produces a
+     * huge percentage that describes the base, not the move, and
+     * reporting it as an extreme change would be misleading.
+     */
     private void checkChange(
             List<DataQualityIssue> issues,
             Integer fiscalYear,
             String metric,
             BigDecimal currentValue,
             BigDecimal previousValue,
+            BigDecimal previousRevenue,
             BigDecimal threshold,
             String explanation
     ) {
+        if (currentValue == null || previousValue == null) {
+            return;
+        }
+
+        if (previousValue.compareTo(BigDecimal.ZERO) == 0) {
+            return;
+        }
+
+        if (isLowBase(previousValue, previousRevenue)) {
+
+            // Only worth noting when the move is large. A small
+            // change from a small base is unremarkable.
+            if (isMateriallyDifferent(
+                    currentValue,
+                    previousValue,
+                    previousRevenue)) {
+
+                issues.add(new DataQualityIssue(
+                        "CHANGE_FROM_LOW_BASE",
+                        DataQualitySeverity.WARNING.name(),
+                        fiscalYear,
+                        metric,
+                        previousValue,
+                        "a base above "
+                                + MINIMUM_BASE_FRACTION
+                                        .multiply(ONE_HUNDRED)
+                                + " percent of revenue",
+                        "The prior period value was close to zero, "
+                                + "so a percentage change is not "
+                                + "meaningful. Compare the absolute "
+                                + "figures instead."
+                ));
+            }
+
+            return;
+        }
+
         BigDecimal change = percentageChange(
                 currentValue,
                 previousValue
@@ -344,12 +369,56 @@ public class DataQualityService {
     }
 
     /**
-     * Percentage change between two periods.
+     * True when the base is too small for a percentage to be
+     * informative.
      *
-     * Uses the absolute previous value as the denominator so a move
-     * from a loss toward profit registers as positive rather than
-     * inverted.
+     * Revenue is used as the yardstick because it is the most stable
+     * figure on the statement and does not collapse when profit does.
      */
+    private boolean isLowBase(
+            BigDecimal previousValue,
+            BigDecimal previousRevenue
+    ) {
+        if (previousRevenue == null
+                || previousRevenue.compareTo(BigDecimal.ZERO) <= 0) {
+            return false;
+        }
+
+        BigDecimal floor = previousRevenue
+                .multiply(MINIMUM_BASE_FRACTION);
+
+        return previousValue.abs().compareTo(floor) < 0;
+    }
+
+    private boolean isMateriallyDifferent(
+            BigDecimal currentValue,
+            BigDecimal previousValue,
+            BigDecimal previousRevenue
+    ) {
+        if (previousRevenue == null
+                || previousRevenue.compareTo(BigDecimal.ZERO) <= 0) {
+            return false;
+        }
+
+        BigDecimal movement =
+                currentValue.subtract(previousValue).abs();
+
+        BigDecimal floor = previousRevenue
+                .multiply(MINIMUM_BASE_FRACTION);
+
+        return movement.compareTo(floor) > 0;
+    }
+
+    private boolean exceedsRevenue(
+            BigDecimal operatingProfit,
+            BigDecimal revenue
+    ) {
+        return operatingProfit != null
+                && revenue != null
+                && revenue.compareTo(BigDecimal.ZERO) > 0
+                && operatingProfit.compareTo(revenue) > 0;
+    }
+
     private BigDecimal percentageChange(
             BigDecimal currentValue,
             BigDecimal previousValue
@@ -388,6 +457,12 @@ public class DataQualityService {
                 .setScale(2, RoundingMode.HALF_UP);
     }
 
+    private String describeSector(String sector) {
+        return sector == null || sector.isBlank()
+                ? "an unclassified company"
+                : "the " + sector + " sector";
+    }
+
     private String buildSummary(
             int issueCount,
             int errorCount,
@@ -408,7 +483,7 @@ public class DataQualityService {
 
         return issueCount + " issue"
                 + (issueCount == 1 ? "" : "s")
-                + " detected in older periods. Current scoring "
-                + "periods appear clean.";
+                + " detected, none affecting the periods used for "
+                + "scoring.";
     }
 }
