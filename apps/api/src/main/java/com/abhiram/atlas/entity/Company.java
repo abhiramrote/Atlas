@@ -44,6 +44,8 @@ public class Company {
 
     @Column(name = "updated_at", nullable = false)
     private LocalDateTime updatedAt;
+    @Column(name = "scoring_profile", nullable = false, length = 40)
+    private String scoringProfile;
 
     protected Company() {
     }
@@ -79,6 +81,9 @@ public class Company {
     public LocalDateTime getUpdatedAt() {
         return updatedAt;
     }
+    public String getScoringProfile() {
+        return scoringProfile;
+    }   
     public void updateProfile(
         String sector,
         String industry,

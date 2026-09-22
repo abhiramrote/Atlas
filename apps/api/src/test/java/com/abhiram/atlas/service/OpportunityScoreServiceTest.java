@@ -412,7 +412,7 @@ class OpportunityScoreServiceTest {
         return instrument;
     }
 
-    private Company newCompany(
+        private Company newCompany(
             UUID id,
             Instrument instrument
     ) throws Exception {
@@ -425,6 +425,11 @@ class OpportunityScoreServiceTest {
         setField(newCompany, "industry", "Diversified");
         setField(newCompany, "website", "https://example.com");
         setField(newCompany, "description", "Test fixture");
+        setField(
+                newCompany,
+                "scoringProfile",
+                "OPERATING_COMPANY"
+        );
         setField(newCompany, "createdAt", LocalDateTime.now());
         setField(newCompany, "updatedAt", LocalDateTime.now());
 

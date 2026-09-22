@@ -7,6 +7,7 @@ import com.abhiram.atlas.entity.FinancialStatement;
 import com.abhiram.atlas.exception.ResourceNotFoundException;
 import com.abhiram.atlas.repository.CompanyRepository;
 import com.abhiram.atlas.repository.FinancialStatementRepository;
+import com.abhiram.atlas.domain.ScoringProfile;
 
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -306,29 +307,29 @@ public class OpportunityScoreService {
     }
 
     return companyRepository.findAll()
-            .stream()
-            .map(company -> {
-                try {
-                    return scoreCompany(company.getId());
-                } catch (RuntimeException ex) {
-                    // A company without sufficient financial
-                    // history cannot be ranked. Excluding it is
-                    // correct; failing the whole ranking is not.
-                    return null;
-                }
-            })
-            .filter(java.util.Objects::nonNull)
-            .sorted(
-                    Comparator.comparingInt(
-                            OpportunityScoreResponse::score
-                    )
-                    .reversed()
-                    .thenComparing(
-                            OpportunityScoreResponse::symbol
-                    )
-            )
-            .limit(limit)
-            .toList();
+        .stream()
+        .filter(company -> ScoringProfile
+                .parse(company.getScoringProfile())
+                .isScoreable())
+        .map(company -> {
+            try {
+                return scoreCompany(company.getId());
+            } catch (RuntimeException ex) {
+                return null;
+            }
+        })
+        .filter(java.util.Objects::nonNull)
+        .sorted(
+                Comparator.comparingInt(
+                        OpportunityScoreResponse::score
+                )
+                .reversed()
+                .thenComparing(
+                        OpportunityScoreResponse::symbol
+                )
+        )
+        .limit(limit)
+        .toList();
 }
 
     public Integer getScore(UUID companyId) {
