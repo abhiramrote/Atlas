@@ -1,3 +1,5 @@
+import { Link } from "react-router-dom";
+import { FileText } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Activity,
@@ -79,6 +81,22 @@ function DashboardPage() {
             <p>Opportunity Intelligence Platform</p>
           </div>
         </div>
+        <div style={{ display: "flex", gap: 10 }}>
+  <Link className="refresh-button" to="/theses">
+    <FileText size={16} />
+    Research journal
+  </Link>
+
+  <button
+    className="refresh-button"
+    type="button"
+    disabled={refreshing}
+    onClick={() => void loadDashboard(true)}
+  >
+    <RefreshCw size={17} className={refreshing ? "spin" : ""} />
+    {refreshing ? "Refreshing" : "Refresh dashboard"}
+  </button>
+</div>
 
         <button
           className="refresh-button"
