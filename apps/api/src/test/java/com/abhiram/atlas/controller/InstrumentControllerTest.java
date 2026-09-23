@@ -8,8 +8,13 @@ import com.abhiram.atlas.service.InstrumentService;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.TestConfiguration;
-import org.springframework.context.annotation.Bean;
+import org.springframework.boot.security.autoconfigure.SecurityAutoConfiguration;
+import org.springframework.boot.security.autoconfigure.web.servlet.ServletWebSecurityAutoConfiguration;
+import org.springframework.boot.security.oauth2.client.autoconfigure.OAuth2ClientAutoConfiguration;
+import org.springframework.boot.security.oauth2.client.autoconfigure.servlet.OAuth2ClientWebSecurityAutoConfiguration;
+import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
+import org.springframework.context.annotation.ComponentScan;
+import org.springframework.context.annotation.FilterType;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
@@ -21,29 +26,46 @@ import java.util.UUID;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
  * Web layer tests for the instrument API contract.
  *
- * The service layer is mocked so these tests verify only
- * routing, serialization and error handling.
+ * WHY SECURITY IS EXCLUDED HERE
  *
- * NOTE ON SPRING BOOT VERSION
- * ---------------------------
- * This project uses Spring Boot 4, where @MockBean is removed.
- * Use org.springframework.test.context.bean.override.mockito.MockitoBean
- * as shown below. If your IDE cannot resolve MockitoBean, confirm the
- * spring-boot-starter-webmvc-test dependency is present.
+ * This test verifies routing, serialization and error handling. It
+ * does not verify authorisation, and mixing the two would mean every
+ * assertion about JSON shape depended on the security configuration
+ * being correct.
  *
- * Also note: @WebMvcTest is imported in Spring Boot 4 from
- * org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest
- * If that import fails, use the fully qualified name your
- * Spring Boot version provides.
+ * Three exclusions are needed because Spring Boot 4 splits security
+ * autoconfiguration across several classes, and OAuth2 client
+ * configuration requires an HttpSecurity bean that only exists when
+ * the servlet security autoconfiguration is active. Excluding one
+ * without the others leaves a half-configured context that fails in
+ * a confusing way.
+ *
+ * The component scan filter additionally keeps the application's own
+ * security package out of the context, so JwtAuthenticationFilter
+ * and its dependencies are never constructed.
+ *
+ * Authorisation rules belong in their own test against the real
+ * filter chain.
  */
-@org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest(
-        controllers = InstrumentController.class
+@WebMvcTest(
+        controllers = InstrumentController.class,
+        excludeAutoConfiguration = {
+                SecurityAutoConfiguration.class,
+                ServletWebSecurityAutoConfiguration.class,
+                OAuth2ClientAutoConfiguration.class,
+                OAuth2ClientWebSecurityAutoConfiguration.class
+        },
+        excludeFilters = @ComponentScan.Filter(
+                type = FilterType.REGEX,
+                pattern = "com\\.abhiram\\.atlas\\.security\\..*"
+        )
 )
 @Import(GlobalExceptionHandler.class)
 class InstrumentControllerTest {
@@ -74,18 +96,14 @@ class InstrumentControllerTest {
 
         mockMvc.perform(get("/api/instruments"))
                 .andExpect(status().isOk())
-                .andExpect(
-                        jsonPath("$[0].symbol")
-                                .value("RELIANCE"))
-                .andExpect(
-                        jsonPath("$[0].companyName")
-                                .value("Reliance Industries Ltd"))
-                .andExpect(
-                        jsonPath("$[0].exchange")
-                                .value("NSE"))
-                .andExpect(
-                        jsonPath("$[0].active")
-                                .value(true));
+                .andExpect(jsonPath("$[0].symbol")
+                        .value("RELIANCE"))
+                .andExpect(jsonPath("$[0].companyName")
+                        .value("Reliance Industries Ltd"))
+                .andExpect(jsonPath("$[0].exchange")
+                        .value("NSE"))
+                .andExpect(jsonPath("$[0].active")
+                        .value(true));
     }
 
     @Test
@@ -105,12 +123,10 @@ class InstrumentControllerTest {
                         get("/api/instruments/{id}",
                                 INSTRUMENT_ID))
                 .andExpect(status().isOk())
-                .andExpect(
-                        jsonPath("$.id")
-                                .value(INSTRUMENT_ID.toString()))
-                .andExpect(
-                        jsonPath("$.symbol")
-                                .value("RELIANCE"));
+                .andExpect(jsonPath("$.id")
+                        .value(INSTRUMENT_ID.toString()))
+                .andExpect(jsonPath("$.symbol")
+                        .value("RELIANCE"));
     }
 
     @Test
@@ -130,9 +146,8 @@ class InstrumentControllerTest {
                         get("/api/instruments/symbol/{symbol}",
                                 "RELIANCE"))
                 .andExpect(status().isOk())
-                .andExpect(
-                        jsonPath("$.symbol")
-                                .value("RELIANCE"));
+                .andExpect(jsonPath("$.symbol")
+                        .value("RELIANCE"));
     }
 
     @Test
@@ -147,13 +162,10 @@ class InstrumentControllerTest {
                         get("/api/instruments/symbol/{symbol}",
                                 "UNKNOWN"))
                 .andExpect(status().isNotFound())
-                .andExpect(
-                        jsonPath("$.status").value(404))
-                .andExpect(
-                        jsonPath("$.message")
-                                .value("Instrument not found: UNKNOWN"))
-                .andExpect(
-                        jsonPath("$.timestamp").exists());
+                .andExpect(jsonPath("$.status").value(404))
+                .andExpect(jsonPath("$.message")
+                        .value("Instrument not found: UNKNOWN"))
+                .andExpect(jsonPath("$.timestamp").exists());
     }
 
     @Test
@@ -169,8 +181,7 @@ class InstrumentControllerTest {
         mockMvc.perform(
                         get("/api/instruments/{id}", missingId))
                 .andExpect(status().isNotFound())
-                .andExpect(
-                        jsonPath("$.status").value(404));
+                .andExpect(jsonPath("$.status").value(404));
     }
 
     @Test
@@ -182,11 +193,7 @@ class InstrumentControllerTest {
 
         mockMvc.perform(get("/api/instruments"))
                 .andExpect(status().isOk())
-                .andExpect(
-                        org.springframework.test.web.servlet.result
-                                .MockMvcResultMatchers
-                                .content()
-                                .contentTypeCompatibleWith(
-                                        MediaType.APPLICATION_JSON));
+                .andExpect(content().contentTypeCompatibleWith(
+                        MediaType.APPLICATION_JSON));
     }
 }
