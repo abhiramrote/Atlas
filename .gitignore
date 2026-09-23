@@ -1,4 +1,7 @@
-apps/api/.env
 .env
-apps/api/.env
-.env
+.env.*
+!.env.example
+target/
+node_modules/
+dist/
+*.log
