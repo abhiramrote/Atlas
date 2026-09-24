@@ -1,3 +1,5 @@
+import { authorizedFetch } from "./http";
+
 import type {
   PublishThesisInput,
   Thesis,
@@ -8,12 +10,19 @@ import type {
 /**
  * Reads the server error message when available, so validation
  * failures surface the actual reason rather than a status code.
+ *
+ * Uses authorizedFetch rather than a bare fetch() because every
+ * thesis endpoint requires authentication on the backend
+ * (SecurityConfig marks /api/theses/** as .authenticated()). A plain
+ * fetch() never attaches the bearer token, so every call would fail
+ * with 401 even when the user is correctly signed in -- which is
+ * exactly the symptom this replaces.
  */
 async function request<T>(
   url: string,
   options?: RequestInit
 ): Promise<T> {
-  const response = await fetch(url, options);
+  const response = await authorizedFetch(url, options);
 
   if (!response.ok) {
     let message = `Atlas API returned status ${response.status}`;

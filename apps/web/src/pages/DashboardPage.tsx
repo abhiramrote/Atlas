@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
+import UserMenu from "../components/UserMenu";
 import {
   Activity,
   AlertTriangle,
@@ -143,6 +144,7 @@ function DashboardPage() {
         </div>
 
         <div className="topbar-actions">
+          <UserMenu />
           <Link className="refresh-button" to="/theses">
             <FileText size={16} />
             Research journal

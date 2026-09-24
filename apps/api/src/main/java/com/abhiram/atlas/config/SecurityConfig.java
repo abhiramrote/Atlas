@@ -3,6 +3,7 @@ package com.abhiram.atlas.config;
 import com.abhiram.atlas.domain.UserRole;
 import com.abhiram.atlas.security.JwtAuthenticationFilter;
 import com.abhiram.atlas.security.OAuth2SuccessHandler;
+import com.abhiram.atlas.security.RestAuthenticationEntryPoint;
 
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
@@ -18,6 +19,7 @@ import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
 import java.util.List;
+
 
 /**
  * Atlas security rules.
@@ -54,17 +56,21 @@ public class SecurityConfig {
     private final JwtAuthenticationFilter jwtFilter;
     private final OAuth2SuccessHandler successHandler;
     private final String frontendUrl;
+    private final RestAuthenticationEntryPoint restAuthenticationEntryPoint;
 
-    public SecurityConfig(
-            JwtAuthenticationFilter jwtFilter,
-            OAuth2SuccessHandler successHandler,
-            @Value("${atlas.frontend.url:http://localhost:5173}")
-            String frontendUrl
-    ) {
-        this.jwtFilter = jwtFilter;
-        this.successHandler = successHandler;
-        this.frontendUrl = frontendUrl;
-    }
+public SecurityConfig(
+        JwtAuthenticationFilter jwtFilter,
+        OAuth2SuccessHandler successHandler,
+        RestAuthenticationEntryPoint restAuthenticationEntryPoint,
+        @Value("${atlas.frontend.url:http://localhost:5173}")
+        String frontendUrl
+) {
+    this.jwtFilter = jwtFilter;
+    this.successHandler = successHandler;
+    this.restAuthenticationEntryPoint = restAuthenticationEntryPoint;
+    this.frontendUrl = frontendUrl;
+}
+
 
     @Bean
     public SecurityFilterChain filterChain(HttpSecurity http)
@@ -79,6 +85,8 @@ public class SecurityConfig {
                 .sessionManagement(session -> session
                         .sessionCreationPolicy(
                                 SessionCreationPolicy.STATELESS))
+                .exceptionHandling(exceptions -> exceptions
+                .authenticationEntryPoint(restAuthenticationEntryPoint))
 
                 .authorizeHttpRequests(auth -> auth
 
@@ -115,6 +123,7 @@ public class SecurityConfig {
                         .authenticated()
 
                         .anyRequest().authenticated()
+                        
                 )
 
                 .oauth2Login(oauth -> oauth

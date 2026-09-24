@@ -1,5 +1,5 @@
 import { BrowserRouter, Route, Routes } from "react-router-dom";
-
+import AuthCallbackPage from "./pages/AuthCallbackPage";
 import DashboardPage from "./pages/DashboardPage";
 import CompanyPage from "./pages/CompanyPage";
 import ThesisJournalPage from "./pages/ThesisJournalPage";
@@ -15,7 +15,7 @@ function App() {
           path="/company/:companyId"
           element={<CompanyPage />}
         />
-
+        <Route path="/auth/callback" element={<AuthCallbackPage />} />
         <Route path="/theses" element={<ThesisJournalPage />} />
 
         <Route
